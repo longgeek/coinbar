@@ -39,9 +39,16 @@ struct SettingsView: View {
                         Text("深色").tag("dark")
                     }.pickerStyle(.segmented).labelsHidden()
                 }
+                HStack {
+                    Text("开机自启动").font(Theme.rounded(13, weight: .medium)).foregroundStyle(.secondary)
+                    Spacer()
+                    Toggle("", isOn: Binding(get: { model.launchAtLogin },
+                                             set: { model.setLaunchAtLogin($0) }))
+                        .labelsHidden().toggleStyle(.switch)
+                }
             }
             .padding(14)
-            .tint(skin.accent)   // 分段控件选中色与外部按钮统一(用皮肤 accent)
+            .tint(skin.accent)   // 分段控件/开关选中色与外部按钮统一(用皮肤 accent)
 
             Divider().overlay(skin.hairline)
             HStack {

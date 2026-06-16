@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import ServiceManagement
 
 /// 应用状态:自选、行情、搜索、菜单栏文案。
 @MainActor
@@ -15,6 +16,7 @@ final class TickerModel: ObservableObject {
     @Published var refreshSec: Int                // 刷新间隔(秒)
     @Published var redUp: Bool                    // true=红涨绿跌(A股) / false=绿涨红跌
     @Published var appearance: String             // auto | light | dark
+    @Published var launchAtLogin: Bool             // 开机自启动(SMAppService)
 
     private var prevPrice: [String: Double] = [:] // 变价闪烁基线
     @Published var flash: [String: Int] = [:]     // +1/-1/0
@@ -30,6 +32,7 @@ final class TickerModel: ObservableObject {
         self.refreshSec = UserDefaults.standard.object(forKey: "refreshSec") as? Int ?? 3
         self.redUp = UserDefaults.standard.bool(forKey: "redUp")
         self.appearance = UserDefaults.standard.string(forKey: "appearance") ?? "auto"
+        self.launchAtLogin = (SMAppService.mainApp.status == .enabled)
         if autostart { start() }   // 启动即抓数据(不必等用户点开面板)
     }
 
@@ -61,6 +64,16 @@ final class TickerModel: ObservableObject {
         d.set(refreshSec, forKey: "refreshSec")
         d.set(redUp, forKey: "redUp")
         d.set(appearance, forKey: "appearance")
+    }
+
+    /// 开机自启动(macOS 13+ SMAppService);失败则回退到真实状态。
+    func setLaunchAtLogin(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            NSLog("CoinBar 开机自启动设置失败: \(error)")
+        }
+        launchAtLogin = (SMAppService.mainApp.status == .enabled)
     }
 
     func refreshSparks() async {
