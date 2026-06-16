@@ -12,15 +12,18 @@
 - **变价闪烁** — 价格变动时整行脉冲 + 数字着绿/红色。
 - **单币详情** — 大号价格、24h 走势、最高/最低/成交额;合约还显示资金费率、下次结算、标记价、指数价,并可一键跳转 Binance。
 - **现货 + 合约** — 现货走 `data-api.binance.vision`(无地区封锁、免密钥),USDⓈ-M 合约走 `fapi.binance.com`。
-- **设置** — 刷新间隔(1/2/3/5/10s)、涨跌配色(绿涨红跌 / 红涨绿跌)、外观(跟随系统 / 浅色 / 深色)。
+- **设置** — 刷新间隔(1/2/3/5/10s)、涨跌配色(绿涨红跌 / 红涨绿跌)、外观(跟随系统 / 浅色 / 深色)、开机自启动。
 
 ## 截图
 
-<!-- TODO: 补充 screenshots/popover.png -->
+<p align="center">
+  <img src="screenshots/popover-light.png" width="340" alt="GitHub Light">
+  <img src="screenshots/popover-dark.png" width="340" alt="GitHub Dark Dimmed">
+</p>
 
-> 小技巧:本应用能自渲染界面图,无需点开菜单栏即可预览设计——
-> `./build/CoinBar.app/Contents/MacOS/CoinBar --render-popover /tmp/popover.png`
-> (另有 `--render-detail`、`--render-settings`、`--render-icon`,可附加 `--skin light|dark|binance`。)
+> 界面图由应用自渲染生成(无需点开菜单栏):
+> `./build/CoinBar.app/Contents/MacOS/CoinBar --render-popover out.png --skin light|binance`
+> (另有 `--render-detail`、`--render-settings`、`--render-icon`。)
 
 ## 从源码构建
 
@@ -33,7 +36,7 @@ cd coinbar
 open build/CoinBar.app
 ```
 
-开机自启动:系统设置 → 通用 → 登录项 → 添加 `CoinBar.app`。
+开机自启动:打开 CoinBar 设置面板里的「开机自启动」开关即可(也可在 系统设置 → 通用 → 登录项 手动添加)。
 
 ## 安装发布版
 
@@ -47,7 +50,7 @@ xattr -dr com.apple.quarantine /Applications/CoinBar.app
 
 v0.1 — 早期版本。已实现:菜单栏多币、搜索自选、迷你 K 线、单币详情、现货 + 合约(含资金费率)、设置面板(刷新间隔/涨跌配色/外观)、应用图标。
 
-后续计划:设计打磨、补充 README 截图、正式签名 + 公证的发布版(当前仅 ad-hoc 签名)。
+后续计划:正式签名 + 公证的发布版(当前仅 ad-hoc 签名)、设计打磨。
 
 ## 许可
 
