@@ -13,7 +13,13 @@ struct Skin: Equatable {
     let hairline: Color
 
     func change(_ p: Double) -> Color { p >= 0 ? up : down }
-    static func == (a: Skin, b: Skin) -> Bool { a.id == b.id }
+    static func == (a: Skin, b: Skin) -> Bool { a.id == b.id && a.up == b.up }
+
+    /// 互换涨跌色(红涨绿跌,A股习惯)。
+    func swappingUpDown() -> Skin {
+        Skin(id: id + "-r", displayName: displayName, dark: dark,
+             up: down, down: up, accent: accent, bg: bg, rowHover: rowHover, hairline: hairline)
+    }
 
     /// A. 清爽原生:浅色材质 + 克制配色,最贴近 macOS 系统观感。
     static let lightNative = Skin(

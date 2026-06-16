@@ -7,8 +7,7 @@ struct CoinBarApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            AutoSkinned { PopoverView() }
-                .environmentObject(model)
+            RootView(model: model)
         } label: {
             BarLabel(model: model)
         }
@@ -28,9 +27,10 @@ struct BarLabel: View {
         let d = model.barDir
         let arrow = d == 0 ? "" : (d > 0 ? "  ▲" : "  ▼")
         let text = model.barText + arrow
-        let color: NSColor = d == 0 ? NSColor(white: 0.65, alpha: 1)
-            : (d > 0 ? NSColor(srgbRed: 0.09, green: 0.78, blue: 0.52, alpha: 1)
-                     : NSColor(srgbRed: 0.92, green: 0.22, blue: 0.26, alpha: 1))
+        let green = NSColor(srgbRed: 0.09, green: 0.78, blue: 0.52, alpha: 1)
+        let red = NSColor(srgbRed: 0.92, green: 0.22, blue: 0.26, alpha: 1)
+        let upC = model.redUp ? red : green, downC = model.redUp ? green : red
+        let color: NSColor = d == 0 ? NSColor(white: 0.65, alpha: 1) : (d > 0 ? upC : downC)
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium),
             .foregroundColor: color,
@@ -46,11 +46,17 @@ struct BarLabel: View {
     }
 }
 
-/// 跟随系统浅/深色自动选皮肤:浅=清爽原生,深=币安金。
-private struct AutoSkinned<Content: View>: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @ViewBuilder var content: Content
+/// 注入皮肤:外观(自动/浅/深,覆盖系统)+ 涨跌色(绿涨红跌 / 红涨绿跌)。
+private struct RootView: View {
+    @ObservedObject var model: TickerModel
+    @Environment(\.colorScheme) private var systemScheme
     var body: some View {
-        content.environment(\.skin, colorScheme == .dark ? .binance : .lightNative)
+        let scheme = model.forcedScheme ?? systemScheme
+        var skin = (scheme == .dark) ? Skin.binance : .lightNative
+        if model.redUp { skin = skin.swappingUpDown() }
+        return PopoverView()
+            .environmentObject(model)
+            .environment(\.skin, skin)
+            .environment(\.colorScheme, scheme)
     }
 }

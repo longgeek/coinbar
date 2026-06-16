@@ -25,6 +25,19 @@ enum Screenshot {
     }
 
     @MainActor
+    static func renderSettings(to path: String, skin: Skin = .lightNative) {
+        let model = TickerModel.mock()
+        let view = SettingsView(show: .constant(true))
+            .environmentObject(model)
+            .environment(\.skin, skin)
+            .environment(\.colorScheme, skin.dark ? .dark : .light)
+            .frame(width: 330)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2.0
+        write(renderer, to: path)
+    }
+
+    @MainActor
     static func renderPopover(to path: String, skin: Skin = .lightNative) {
         let model = TickerModel.mock()
         let view = PopoverView(preview: true)

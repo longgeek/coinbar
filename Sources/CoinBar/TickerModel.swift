@@ -11,6 +11,11 @@ final class TickerModel: ObservableObject {
     @Published var lastUpdated: Date?
     @Published var barPinned: String?             // 菜单栏显示哪个币(nil=第一个)
 
+    // 设置项(设置面板里可调)
+    @Published var refreshSec: Int                // 刷新间隔(秒)
+    @Published var redUp: Bool                    // true=红涨绿跌(A股) / false=绿涨红跌
+    @Published var appearance: String             // auto | light | dark
+
     private var prevPrice: [String: Double] = [:] // 变价闪烁基线
     @Published var flash: [String: Int] = [:]     // +1/-1/0
     @Published var spark: [String: [Double]] = [:] // 迷你 K 线收盘价序列(近 24h)
@@ -20,6 +25,9 @@ final class TickerModel: ObservableObject {
     init(watchlist: [String] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: Bool = true) {
         self.watchlist = UserDefaults.standard.stringArray(forKey: "watchlist") ?? watchlist
         self.barPinned = UserDefaults.standard.string(forKey: "barPinned")
+        self.refreshSec = UserDefaults.standard.object(forKey: "refreshSec") as? Int ?? 3
+        self.redUp = UserDefaults.standard.bool(forKey: "redUp")
+        self.appearance = UserDefaults.standard.string(forKey: "appearance") ?? "auto"
         if autostart { start() }   // 启动即抓数据(不必等用户点开面板)
     }
 
@@ -27,12 +35,30 @@ final class TickerModel: ObservableObject {
         Task { await refresh() }
         Task { allSymbols = await BinanceAPI.fetchAllSymbols() }
         Task { await refreshSparks() }
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            Task { await self?.refresh() }
-        }
+        restartTimer()
         sparkTimer = Timer.scheduledTimer(withTimeInterval: 90, repeats: true) { [weak self] _ in
             Task { await self?.refreshSparks() }
         }
+    }
+
+    /// 按当前 refreshSec 重建价格定时器(改间隔时调用)。
+    func restartTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: Double(max(1, refreshSec)), repeats: true) { [weak self] _ in
+            Task { await self?.refresh() }
+        }
+    }
+
+    /// 外观覆盖:nil=跟随系统。
+    var forcedScheme: ColorScheme? {
+        switch appearance { case "light": return .light; case "dark": return .dark; default: return nil }
+    }
+
+    func saveSettings() {
+        let d = UserDefaults.standard
+        d.set(refreshSec, forKey: "refreshSec")
+        d.set(redUp, forKey: "redUp")
+        d.set(appearance, forKey: "appearance")
     }
 
     func refreshSparks() async {

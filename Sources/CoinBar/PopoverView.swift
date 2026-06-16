@@ -5,15 +5,22 @@ struct PopoverView: View {
     @EnvironmentObject var model: TickerModel
     @Environment(\.skin) private var skin
     @FocusState private var searchFocused: Bool
+    @State private var showSettings = false
     var preview: Bool = false   // 截图模式:用静态控件替代 TextField,便于离屏渲染
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().overlay(skin.hairline)
-            list
-            Divider().overlay(skin.hairline)
-            footer
+        Group {
+            if showSettings {
+                SettingsView(show: $showSettings)
+            } else {
+                VStack(spacing: 0) {
+                    header
+                    Divider().overlay(skin.hairline)
+                    list
+                    Divider().overlay(skin.hairline)
+                    footer
+                }
+            }
         }
         .frame(width: 330)
         .background(skin.bg)
@@ -102,6 +109,9 @@ struct PopoverView: View {
             Button { Task { await model.refresh() } } label: {
                 Image(systemName: "arrow.clockwise")
             }.buttonStyle(.plain).help("立即刷新")
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape")
+            }.buttonStyle(.plain).help("设置")
             Button { NSApp.terminate(nil) } label: {
                 Image(systemName: "power")
             }.buttonStyle(.plain).help("退出 CoinBar")

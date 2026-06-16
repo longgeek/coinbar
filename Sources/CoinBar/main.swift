@@ -4,6 +4,10 @@ import SwiftUI
 let args = CommandLine.arguments
 if let i = args.firstIndex(of: "--render-icon"), i + 1 < args.count {
     MainActor.assumeIsolated { Screenshot.renderIcon(to: args[i + 1]) }
+} else if let i = args.firstIndex(of: "--render-settings"), i + 1 < args.count {
+    var skin = Skin.lightNative
+    if let j = args.firstIndex(of: "--skin"), j + 1 < args.count { skin = Skin.byId(args[j + 1]) }
+    MainActor.assumeIsolated { Screenshot.renderSettings(to: args[i + 1], skin: skin) }
 } else if let i = args.firstIndex(of: "--render-popover"), i + 1 < args.count {
     var skin = Skin.lightNative
     if let j = args.firstIndex(of: "--skin"), j + 1 < args.count {
