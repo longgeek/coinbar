@@ -19,6 +19,8 @@ final class TickerModel: ObservableObject {
     private var prevPrice: [String: Double] = [:] // 变价闪烁基线
     @Published var flash: [String: Int] = [:]     // +1/-1/0
     @Published var spark: [String: [Double]] = [:] // 迷你 K 线收盘价序列(近 24h)
+    @Published var funding: [String: Funding] = [:] // 合约资金费率/标记价(详情页)
+    @Published var futuresSyms: Set<String> = []    // 以合约数据展示的币
     private var timer: Timer?
     private var sparkTimer: Timer?
 
@@ -68,6 +70,11 @@ final class TickerModel: ObservableObject {
         }
     }
 
+    /// 加载某合约币的资金费率/标记价(详情页打开时调用)。
+    func loadFunding(_ sym: String) async {
+        if let f = await BinanceAPI.fetchFunding(sym) { funding[sym] = f }
+    }
+
     func refresh() async {
         let syms = watchlist
         guard !syms.isEmpty else { tickers = [:]; return }
@@ -78,7 +85,11 @@ final class TickerModel: ObservableObject {
         let spotSet = Set(spot.map { $0.symbol })
         let missing = syms.filter { !spotSet.contains($0) }
         if !missing.isEmpty {
-            for t in await BinanceAPI.fetchFutures(missing) { map[t.symbol] = t }
+            let fut = await BinanceAPI.fetchFutures(missing)
+            for t in fut { map[t.symbol] = t }
+            futuresSyms = Set(fut.map { $0.symbol })   // 这些币以合约数据展示
+        } else {
+            futuresSyms = []
         }
         for sym in syms {                                  // 变价方向(脉冲/闪烁)
             if let t = map[sym] {
@@ -158,6 +169,9 @@ final class TickerModel: ObservableObject {
             "SOLUSDT": [76.4, 75.5, 75.8, 74.9, 74.0, 73.5, 73.9, 73.2, 73.68],
             "BNBUSDT": [616, 615, 617, 614.5, 613.2, 612.5, 613.1, 612.91],
         ]
+        m.futuresSyms = ["SOLUSDT"]
+        m.funding = ["SOLUSDT": Funding(rate: -0.00008, mark: 73.66, index: 73.70,
+                                        nextTime: Date().addingTimeInterval(2400).timeIntervalSince1970 * 1000)]
         m.barCoins = ["BTCUSDT"]
         m.lastUpdated = Date()
         return m

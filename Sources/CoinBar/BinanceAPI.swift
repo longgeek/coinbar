@@ -19,6 +19,14 @@ struct Ticker: Identifiable, Codable, Equatable {
 }
 
 /// 现货行情:走 data-api.binance.vision(无地区封锁、免密钥),与 binance.com 同价。
+/// 合约资金费率 / 标记价信息。
+struct Funding: Equatable {
+    let rate: Double      // 当前资金费率(每结算周期,小数)
+    let mark: Double
+    let index: Double
+    let nextTime: Double  // 下次结算(epoch 毫秒)
+}
+
 enum BinanceAPI {
     static let spotBase = "https://data-api.binance.vision"   // 现货:无地区封锁
     static let fapiBase = "https://fapi.binance.com"          // USDⓈ-M 合约
@@ -60,6 +68,15 @@ enum BinanceAPI {
         guard let url = URL(string: "\(base)?symbol=\(symbol)&interval=30m&limit=48"),
               let raw = (try? await getJSON(url)) as? [[Any]] else { return [] }
         return raw.compactMap { Double(($0.count > 4 ? $0[4] : nil) as? String ?? "") }   // index 4 = close
+    }
+
+    /// 合约资金费率/标记价(premiumIndex)。
+    static func fetchFunding(_ symbol: String) async -> Funding? {
+        guard let url = URL(string: "\(fapiBase)/fapi/v1/premiumIndex?symbol=\(symbol)"),
+              let d = (try? await getJSON(url)) as? [String: Any] else { return nil }
+        func s(_ k: String) -> Double { Double((d[k] as? String) ?? "") ?? 0 }
+        let next = (d["nextFundingTime"] as? Double) ?? ((d["nextFundingTime"] as? NSNumber)?.doubleValue ?? 0)
+        return Funding(rate: s("lastFundingRate"), mark: s("markPrice"), index: s("indexPrice"), nextTime: next)
     }
 
     /// 并发抓多个单交易对 URL,跳过失败/无效(如 400)。
@@ -123,5 +140,15 @@ enum Fmt {
         if a >= 1e6 { return String(format: "%.2fM", v / 1e6) }
         if a >= 1e3 { return String(format: "%.2fK", v / 1e3) }
         return String(format: "%.0f", v)
+    }
+    static func funding(_ r: Double) -> String { String(format: "%+.4f%%", r * 100) }
+    static func fundingTime(_ ms: Double) -> String {
+        guard ms > 0 else { return "—" }
+        let date = Date(timeIntervalSince1970: ms / 1000)
+        let f = DateFormatter(); f.dateFormat = "HH:mm"
+        let mins = max(0, Int(date.timeIntervalSinceNow / 60))
+        let h = mins / 60, m = mins % 60
+        let left = h > 0 ? "(剩 \(h)h\(m)m)" : "(剩 \(m)m)"
+        return mins == 0 ? f.string(from: date) : "\(f.string(from: date)) \(left)"
     }
 }

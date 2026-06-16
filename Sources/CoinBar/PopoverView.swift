@@ -6,11 +6,14 @@ struct PopoverView: View {
     @Environment(\.skin) private var skin
     @FocusState private var searchFocused: Bool
     @State private var showSettings = false
+    @State private var detailSym: String?
     var preview: Bool = false   // 截图模式:用静态控件替代 TextField,便于离屏渲染
 
     var body: some View {
         Group {
-            if showSettings {
+            if let dsym = detailSym {
+                DetailView(sym: dsym, dismiss: { detailSym = nil })
+            } else if showSettings {
                 SettingsView(show: $showSettings)
             } else {
                 VStack(spacing: 0) {
@@ -77,7 +80,7 @@ struct PopoverView: View {
                     empty
                 } else {
                     ForEach(model.watchlist, id: \.self) { sym in
-                        WatchRow(sym: sym).environmentObject(model)
+                        WatchRow(sym: sym, onOpen: { detailSym = $0 }).environmentObject(model)
                     }
                 }
             } else {
@@ -134,6 +137,7 @@ struct WatchRow: View {
     @EnvironmentObject var model: TickerModel
     @Environment(\.skin) private var skin
     let sym: String
+    var onOpen: (String) -> Void = { _ in }
     @State private var hover = false
     @State private var pulse: Double = 0
     @State private var pulseUp = true
@@ -178,6 +182,7 @@ struct WatchRow: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(hover ? skin.rowHover : .clear))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
+        .onTapGesture { onOpen(sym) }
         .onChange(of: t?.lastPrice) { _ in
             let d = model.flash[sym] ?? 0
             guard d != 0 else { return }
