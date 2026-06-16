@@ -23,23 +23,32 @@ final class TickerModel: ObservableObject {
 
     func start() {
         Task { await refresh() }
-        Task { allSymbols = (try? await BinanceAPI.fetchAllSymbols()) ?? [] }
+        Task { allSymbols = await BinanceAPI.fetchAllSymbols() }
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { await self?.refresh() }
         }
     }
 
     func refresh() async {
-        guard !watchlist.isEmpty else { tickers = [:]; return }
-        guard let fresh = try? await BinanceAPI.fetchSpot(watchlist) else { return }
-        var map = tickers
-        for t in fresh {
-            let dir = prevPrice[t.symbol].map { t.lastPrice > $0 ? 1 : (t.lastPrice < $0 ? -1 : 0) } ?? 0
-            flash[t.symbol] = dir
-            prevPrice[t.symbol] = t.lastPrice
-            map[t.symbol] = t
+        let syms = watchlist
+        guard !syms.isEmpty else { tickers = [:]; return }
+        var map = tickers                                  // 保留上次,避免瞬时缺失闪烁
+        let spot = await BinanceAPI.fetchSpot(syms)
+        for t in spot { map[t.symbol] = t }
+        // 现货拿不到的(纯合约币)→ 走合约接口
+        let spotSet = Set(spot.map { $0.symbol })
+        let missing = syms.filter { !spotSet.contains($0) }
+        if !missing.isEmpty {
+            for t in await BinanceAPI.fetchFutures(missing) { map[t.symbol] = t }
         }
-        tickers = map
+        for sym in syms {                                  // 变价方向(脉冲/闪烁)
+            if let t = map[sym] {
+                let dir = prevPrice[sym].map { t.lastPrice > $0 ? 1 : (t.lastPrice < $0 ? -1 : 0) } ?? 0
+                flash[sym] = dir
+                prevPrice[sym] = t.lastPrice
+            }
+        }
+        tickers = map.filter { syms.contains($0.key) }     // 清理已移除的
         lastUpdated = Date()
     }
 

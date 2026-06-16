@@ -16,7 +16,6 @@ struct PopoverView: View {
             footer
         }
         .frame(width: 330)
-        .frame(maxHeight: 460)
         .background(skin.bg)
     }
 
@@ -52,9 +51,16 @@ struct PopoverView: View {
             if preview {
                 listContent            // 截图模式:无 ScrollView(ImageRenderer 不渲染其内容)
             } else {
-                ScrollView { listContent }
+                ScrollView { listContent }.frame(height: listHeight)   // .window 下必须给确定高度,否则塌缩
             }
         }
+    }
+
+    // 列表高度:按行数估算,封顶 380 后滚动;空态给固定高度。
+    private var listHeight: CGFloat {
+        let n = model.query.isEmpty ? model.watchlist.count : model.displayed.count
+        if n == 0 { return 140 }
+        return min(CGFloat(n) * 52 + 12, 380)
     }
 
     private var listContent: some View {
@@ -154,7 +160,7 @@ struct WatchRow: View {
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8).fill((pulseUp ? skin.up : skin.down).opacity(0.22 * pulse)))
+        .background(RoundedRectangle(cornerRadius: 8).fill((pulseUp ? skin.up : skin.down).opacity(0.40 * pulse)))
         .background(RoundedRectangle(cornerRadius: 8).fill(hover ? skin.rowHover : .clear))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
@@ -162,8 +168,10 @@ struct WatchRow: View {
             let d = model.flash[sym] ?? 0
             guard d != 0 else { return }
             pulseUp = d > 0
-            pulse = 1
-            withAnimation(.easeOut(duration: 0.7)) { pulse = 0 }   // 闪一下后淡出
+            pulse = 1                                   // 先点亮(这一帧)
+            DispatchQueue.main.async {                  // 下一帧再动画淡出,避免被合并掉
+                withAnimation(.easeOut(duration: 0.8)) { pulse = 0 }
+            }
         }
     }
 
