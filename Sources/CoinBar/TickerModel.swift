@@ -1,0 +1,103 @@
+import SwiftUI
+import Combine
+
+/// 应用状态:自选、行情、搜索、菜单栏文案。
+@MainActor
+final class TickerModel: ObservableObject {
+    @Published var watchlist: [String]   // 自选交易对(全大写,e.g. BTCUSDT)
+    @Published var tickers: [String: Ticker] = [:]
+    @Published var query: String = ""
+    @Published var allSymbols: [String] = []     // 搜索用的全量符号
+    @Published var lastUpdated: Date?
+    @Published var barPinned: String?             // 菜单栏显示哪个币(nil=第一个)
+
+    private var prevPrice: [String: Double] = [:] // 变价闪烁基线
+    @Published var flash: [String: Int] = [:]     // +1/-1/0
+    private var timer: Timer?
+
+    init(watchlist: [String] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]) {
+        self.watchlist = UserDefaults.standard.stringArray(forKey: "watchlist") ?? watchlist
+        self.barPinned = UserDefaults.standard.string(forKey: "barPinned")
+    }
+
+    func start() {
+        Task { await refresh() }
+        Task { allSymbols = (try? await BinanceAPI.fetchAllSymbols()) ?? [] }
+        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            Task { await self?.refresh() }
+        }
+    }
+
+    func refresh() async {
+        guard !watchlist.isEmpty else { tickers = [:]; return }
+        guard let fresh = try? await BinanceAPI.fetchSpot(watchlist) else { return }
+        var map = tickers
+        for t in fresh {
+            let dir = prevPrice[t.symbol].map { t.lastPrice > $0 ? 1 : (t.lastPrice < $0 ? -1 : 0) } ?? 0
+            flash[t.symbol] = dir
+            prevPrice[t.symbol] = t.lastPrice
+            map[t.symbol] = t
+        }
+        tickers = map
+        lastUpdated = Date()
+    }
+
+    // 菜单栏文案
+    var barText: String {
+        let sym = barPinned ?? watchlist.first
+        guard let sym, let t = tickers[sym] else { return "CoinBar" }
+        return "\(t.base) \(Fmt.price(t.lastPrice))"
+    }
+
+    // 当前应展示的列表(空搜索=自选;有搜索=过滤全量符号)
+    var displayed: [String] {
+        if query.isEmpty { return watchlist }
+        let q = query.uppercased()
+        return allSymbols.filter { $0.contains(q) }
+            .sorted { a, b in
+                func rank(_ s: String) -> (Int, Int, Int) {
+                    (s.hasPrefix(q) ? 0 : 1, s.hasSuffix("USDT") ? 0 : 1, s.count)
+                }
+                return rank(a) < rank(b)
+            }
+            .prefix(40).map { $0 }
+    }
+
+    func isWatched(_ sym: String) -> Bool { watchlist.contains(sym) }
+
+    func toggleWatch(_ sym: String) {
+        if let i = watchlist.firstIndex(of: sym) {
+            watchlist.remove(at: i)
+            if barPinned == sym { barPinned = nil }
+        } else {
+            watchlist.append(sym)
+            Task { await refresh() }
+        }
+        persist()
+    }
+
+    func setBarPinned(_ sym: String) {
+        barPinned = (barPinned == sym) ? nil : sym
+        persist()
+    }
+
+    private func persist() {
+        UserDefaults.standard.set(watchlist, forKey: "watchlist")
+        UserDefaults.standard.set(barPinned, forKey: "barPinned")
+    }
+
+    /// 截图预览用的假数据。
+    static func mock() -> TickerModel {
+        let m = TickerModel(watchlist: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"])
+        m.tickers = [
+            "BTCUSDT": Ticker(symbol: "BTCUSDT", lastPrice: 66430.12, changePct: 1.32, high: 67255, low: 65469, quoteVolume: 10_900_000_000),
+            "ETHUSDT": Ticker(symbol: "ETHUSDT", lastPrice: 1762.40, changePct: 3.45, high: 1849, low: 1712, quoteVolume: 4_800_000_000),
+            "SOLUSDT": Ticker(symbol: "SOLUSDT", lastPrice: 73.68, changePct: -2.11, high: 76, low: 70.8, quoteVolume: 2_060_000_000),
+            "BNBUSDT": Ticker(symbol: "BNBUSDT", lastPrice: 612.91, changePct: -0.63, high: 620, low: 605, quoteVolume: 837_000_000),
+        ]
+        m.flash = ["BTCUSDT": 1, "ETHUSDT": 1, "SOLUSDT": -1, "BNBUSDT": 0]
+        m.barPinned = "BTCUSDT"
+        m.lastUpdated = Date()
+        return m
+    }
+}
