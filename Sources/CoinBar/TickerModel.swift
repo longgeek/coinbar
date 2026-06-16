@@ -50,6 +50,13 @@ final class TickerModel: ObservableObject {
         return "\(t.base) \(Fmt.price(t.lastPrice))"
     }
 
+    /// 菜单栏方向(按 24h 涨跌,始终有值 → 箭头宽度稳定不抖):+1 涨 / -1 跌 / 0 无数据。
+    var barDir: Int {
+        let sym = barPinned ?? watchlist.first
+        guard let sym, let t = tickers[sym] else { return 0 }
+        return t.changePct >= 0 ? 1 : -1
+    }
+
     // 当前应展示的列表(空搜索=自选;有搜索=过滤全量符号)
     var displayed: [String] {
         if query.isEmpty { return watchlist }

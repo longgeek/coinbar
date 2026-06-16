@@ -9,9 +9,21 @@ struct CoinBarApp: App {
             AutoSkinned { PopoverView() }
                 .environmentObject(model)
         } label: {
-            Text(model.barText)
+            BarLabel(model: model)
         }
         .menuBarExtraStyle(.window)   // .window 让弹出内容是真正的面板(可放搜索框/列表)
+    }
+}
+
+/// 菜单栏标签:等宽数字(避免跳动)+ 24h 方向箭头(绿涨红跌)。
+struct BarLabel: View {
+    @ObservedObject var model: TickerModel
+    var body: some View {
+        let d = model.barDir
+        let arrow = d == 0 ? "" : (d > 0 ? "  ▲" : "  ▼")
+        let color = d >= 0 ? Color(hex: 0x16C784) : Color(hex: 0xEA3943)
+        return Text(model.barText).monospacedDigit()
+            + Text(arrow).foregroundColor(color)
     }
 }
 

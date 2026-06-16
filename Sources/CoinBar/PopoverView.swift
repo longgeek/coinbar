@@ -119,6 +119,8 @@ struct WatchRow: View {
     @Environment(\.skin) private var skin
     let sym: String
     @State private var hover = false
+    @State private var pulse: Double = 0
+    @State private var pulseUp = true
 
     var body: some View {
         let t = model.tickers[sym]
@@ -152,9 +154,17 @@ struct WatchRow: View {
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 8).fill((pulseUp ? skin.up : skin.down).opacity(0.22 * pulse)))
         .background(RoundedRectangle(cornerRadius: 8).fill(hover ? skin.rowHover : .clear))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
+        .onChange(of: t?.lastPrice) { _ in
+            let d = model.flash[sym] ?? 0
+            guard d != 0 else { return }
+            pulseUp = d > 0
+            pulse = 1
+            withAnimation(.easeOut(duration: 0.7)) { pulse = 0 }   // 闪一下后淡出
+        }
     }
 
     private func flashColor(_ d: Int) -> Color {
