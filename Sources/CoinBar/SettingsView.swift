@@ -44,7 +44,7 @@ struct SettingsView: View {
 
             Divider().overlay(skin.hairline)
             HStack {
-                Text("CoinBar v0.1").font(.system(size: 11)).foregroundStyle(.tertiary)
+                Text("CoinBar v0.1 by Longgeek").font(.system(size: 11)).foregroundStyle(.tertiary)
                 Spacer()
                 Text("数据来自 Binance").font(.system(size: 11)).foregroundStyle(.tertiary)
             }

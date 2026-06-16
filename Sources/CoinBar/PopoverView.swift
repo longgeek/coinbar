@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 菜单栏点击后弹出的主面板:搜索框 + 币列表 + 底栏。
 struct PopoverView: View {
@@ -7,6 +8,7 @@ struct PopoverView: View {
     @FocusState private var searchFocused: Bool
     @State private var showSettings = false
     @State private var detailSym: String?
+    @State private var dragWatch: String?   // 拖拽排序中的交易对(跨行共享)
     var preview: Bool = false   // 截图模式:用静态控件替代 TextField,便于离屏渲染
 
     var body: some View {
@@ -25,7 +27,7 @@ struct PopoverView: View {
                 }
             }
         }
-        .frame(width: 330)
+        .frame(width: 360)
         .background(skin.bg)
     }
 
@@ -80,7 +82,7 @@ struct PopoverView: View {
                     empty
                 } else {
                     ForEach(model.watchlist, id: \.self) { sym in
-                        WatchRow(sym: sym, onOpen: { detailSym = $0 }).environmentObject(model)
+                        WatchRow(sym: sym, onOpen: { detailSym = $0 }, dragging: $dragWatch, preview: preview).environmentObject(model)
                     }
                 }
             } else {
@@ -132,12 +134,14 @@ struct PopoverView: View {
     }
 }
 
-/// 自选行:置顶星 + 符号 + 价格(变价着色)+ 涨跌幅胶囊。
+/// 自选行:左侧操作(拖拽手柄 + 置顶 + 移除)+ 符号/现货合约标记 + 迷你 K 线 + 价格。
 struct WatchRow: View {
     @EnvironmentObject var model: TickerModel
     @Environment(\.skin) private var skin
     let sym: String
     var onOpen: (String) -> Void = { _ in }
+    @Binding var dragging: String?
+    var preview: Bool = false   // 截图模式:跳过拖拽,避免 ImageRenderer 画出占位符
     @State private var hover = false
     @State private var pulse: Double = 0
     @State private var pulseUp = true
@@ -145,22 +149,59 @@ struct WatchRow: View {
     var body: some View {
         let t = model.tickers[sym]
         let pinned = model.isPinned(sym)
-        HStack(spacing: 10) {
+        let isFut = model.futuresSyms.contains(sym)
+        HStack(spacing: 8) {
+            // 左侧操作:拖拽手柄(拖拽源)/ 置顶 / 移除
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .help("拖拽排序")
+                .applyIf(!preview) { v in
+                    v.onDrag({
+                        dragging = sym
+                        return NSItemProvider(object: sym as NSString)
+                    }, preview: {
+                        Text(t?.base ?? sym)
+                            .font(Theme.rounded(13, weight: .semibold))
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(skin.rowHover))
+                    })
+                }
             Button { model.togglePin(sym) } label: {
-                Image(systemName: pinned ? "star.fill" : "star")
+                Image(systemName: pinned ? "pin.fill" : "pin")
                     .font(.system(size: 12))
-                    .foregroundStyle(pinned ? skin.accent : Color.secondary.opacity(0.5))
-            }.buttonStyle(.plain).help(pinned ? "已在菜单栏显示" : "显示到菜单栏")
+                    .foregroundStyle(pinned ? skin.accent : Color.secondary.opacity(0.45))
+            }.buttonStyle(.plain).help(pinned ? "已固定到菜单栏" : "固定到菜单栏")
+            Button { model.toggleWatch(sym) } label: {
+                Image(systemName: "minus.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(skin.down.opacity(0.7))
+            }.buttonStyle(.plain).help("移除自选")
 
-            VStack(alignment: .leading, spacing: 1) {
+            // 符号 + 现货/合约标记(标记放第二行,不占主行宽度,给 K 线让地方)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(t?.base ?? sym).font(Theme.rounded(14, weight: .semibold))
-                Text(sym).font(.system(size: 10)).foregroundStyle(.tertiary)
+                HStack(spacing: 4) {
+                    Text(isFut ? "合约" : "现货")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(isFut ? skin.accent : Color.secondary)
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(RoundedRectangle(cornerRadius: 4)
+                            .fill((isFut ? skin.accent : Color.secondary).opacity(0.15)))
+                    Text(sym).font(.system(size: 10)).foregroundStyle(.tertiary)
+                }
             }
-            Spacer(minLength: 6)
+
+            // 迷你 K 线:弹性宽度,填满中间空白
             if let s = model.spark[sym], s.count >= 2 {
                 Sparkline(data: s, color: (s.last! >= s.first!) ? skin.up : skin.down)
-                    .frame(width: 50, height: 22)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 26)
+                    .padding(.horizontal, 6)
+            } else {
+                Spacer(minLength: 8)
             }
+
             if let t {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(Fmt.price(t.lastPrice))
@@ -171,18 +212,19 @@ struct WatchRow: View {
             } else {
                 ProgressView().controlSize(.small)
             }
-            if hover {
-                Button { model.toggleWatch(sym) } label: {
-                    Image(systemName: "minus.circle.fill").foregroundStyle(skin.down.opacity(0.85))
-                }.buttonStyle(.plain).help("移除")
-            }
         }
         .padding(.horizontal, 8).padding(.vertical, 7)
         .background(RoundedRectangle(cornerRadius: 8).fill((pulseUp ? skin.up : skin.down).opacity(0.40 * pulse)))
         .background(RoundedRectangle(cornerRadius: 8).fill(hover ? skin.rowHover : .clear))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .strokeBorder(skin.accent.opacity(dragging == sym ? 0.6 : 0), lineWidth: 1.5))
+        .opacity(dragging == sym ? 0.5 : 1)
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture { onOpen(sym) }
+        .applyIf(!preview) { v in
+            v.onDrop(of: [.text], delegate: WatchReorderDelegate(target: sym, model: model, dragging: $dragging))
+        }
         .onChange(of: t?.lastPrice) { _ in
             let d = model.flash[sym] ?? 0
             guard d != 0 else { return }
@@ -196,6 +238,32 @@ struct WatchRow: View {
 
     private func flashColor(_ d: Int) -> Color {
         d > 0 ? skin.up : (d < 0 ? skin.down : .primary)
+    }
+}
+
+/// 自选行拖拽重排:拖到某行上方,即把被拖项移到该行之前。
+private struct WatchReorderDelegate: DropDelegate {
+    let target: String
+    let model: TickerModel
+    @Binding var dragging: String?
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func dropEntered(info: DropInfo) {
+        guard let from = dragging, from != target else { return }
+        MainActor.assumeIsolated {
+            withAnimation(.easeInOut(duration: 0.18)) { model.moveWatch(from, to: target) }
+        }
+    }
+    func performDrop(info: DropInfo) -> Bool {
+        dragging = nil
+        return true
+    }
+}
+
+extension View {
+    /// 条件化套用修饰符。用于截图模式跳过拖拽,避免 ImageRenderer 渲染出占位符。
+    @ViewBuilder func applyIf<V: View>(_ condition: Bool, _ transform: (Self) -> V) -> some View {
+        if condition { transform(self) } else { self }
     }
 }
 

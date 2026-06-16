@@ -31,7 +31,7 @@ enum Screenshot {
             .environmentObject(model)
             .environment(\.skin, skin)
             .environment(\.colorScheme, skin.dark ? .dark : .light)
-            .frame(width: 330)
+            .frame(width: 360)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2.0
         write(renderer, to: path)
@@ -44,7 +44,7 @@ enum Screenshot {
             .environmentObject(model)
             .environment(\.skin, skin)
             .environment(\.colorScheme, skin.dark ? .dark : .light)
-            .frame(width: 330)
+            .frame(width: 360)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2.0
         write(renderer, to: path)
@@ -57,7 +57,7 @@ enum Screenshot {
             .environmentObject(model)
             .environment(\.skin, skin)
             .environment(\.colorScheme, skin.dark ? .dark : .light)
-            .frame(width: 330, height: 360)
+            .frame(width: 360, height: 360)
 
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2.0

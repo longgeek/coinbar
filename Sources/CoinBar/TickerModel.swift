@@ -147,6 +147,18 @@ final class TickerModel: ObservableObject {
         persist()
     }
 
+    /// 拖拽重排自选:把 from 移到 target 之前。
+    func moveWatch(_ from: String, to target: String) {
+        guard from != target, let fromIdx = watchlist.firstIndex(of: from) else { return }
+        watchlist.remove(at: fromIdx)
+        if let toIdx = watchlist.firstIndex(of: target) {
+            watchlist.insert(from, at: toIdx)
+        } else {
+            watchlist.append(from)
+        }
+        persist()
+    }
+
     private func persist() {
         UserDefaults.standard.set(watchlist, forKey: "watchlist")
         UserDefaults.standard.set(barCoins, forKey: "barCoins")
