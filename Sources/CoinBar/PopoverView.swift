@@ -18,7 +18,6 @@ struct PopoverView: View {
         .frame(width: 330)
         .frame(maxHeight: 460)
         .background(skin.bg)
-        .environment(\.colorScheme, skin.dark ? .dark : .light)
     }
 
     // MARK: 顶部搜索

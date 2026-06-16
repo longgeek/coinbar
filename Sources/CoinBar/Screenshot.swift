@@ -10,6 +10,7 @@ enum Screenshot {
         let view = PopoverView(preview: true)
             .environmentObject(model)
             .environment(\.skin, skin)
+            .environment(\.colorScheme, skin.dark ? .dark : .light)
             .frame(width: 330, height: 360)
 
         let renderer = ImageRenderer(content: view)

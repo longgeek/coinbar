@@ -6,12 +6,20 @@ struct CoinBarApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            PopoverView()
+            AutoSkinned { PopoverView() }
                 .environmentObject(model)
-                .environment(\.skin, .lightNative)   // 默认皮肤(后续可在面板里切换)
         } label: {
             Text(model.barText)
         }
         .menuBarExtraStyle(.window)   // .window 让弹出内容是真正的面板(可放搜索框/列表)
+    }
+}
+
+/// 跟随系统浅/深色自动选皮肤:浅=清爽原生,深=币安金。
+private struct AutoSkinned<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ViewBuilder var content: Content
+    var body: some View {
+        content.environment(\.skin, colorScheme == .dark ? .binance : .lightNative)
     }
 }
