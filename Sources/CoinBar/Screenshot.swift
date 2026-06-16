@@ -24,14 +24,36 @@ enum Screenshot {
         exit(0)
     }
 
+    /// 菜单栏多币种行情条(README 用)。复刻 AppDelegate.barImage 的观感:等宽数字 + 涨跌色 + 箭头。
+    @MainActor
+    static func renderBar(to path: String, skin: Skin = .lightNative) {
+        let green = Color(red: 0.09, green: 0.78, blue: 0.52)
+        let red = Color(red: 0.92, green: 0.22, blue: 0.26)
+        let coins: [(base: String, price: String, up: Bool)] =
+            [("BTC", "66,430.12", true), ("ETH", "1,762.40", true), ("SOL", "73.68", false)]
+        let view = HStack(spacing: 18) {
+            ForEach(Array(coins.enumerated()), id: \.offset) { _, c in
+                Text("\(c.base) \(c.price)\(c.up ? "▲" : "▼")")
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundStyle(c.up ? green : red)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 7)
+        .background(skin.dark ? Color(hex: 0x1C2128) : Color(white: 0.96))
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2.0
+        write(renderer, to: path)
+    }
+
     @MainActor
     static func renderSettings(to path: String, skin: Skin = .lightNative) {
         let model = TickerModel.mock()
-        let view = SettingsView(show: .constant(true))
+        let view = SettingsView(show: .constant(true), preview: true)
             .environmentObject(model)
             .environment(\.skin, skin)
             .environment(\.colorScheme, skin.dark ? .dark : .light)
             .frame(width: 360)
+            .background(skin.bg)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2.0
         write(renderer, to: path)
@@ -45,6 +67,7 @@ enum Screenshot {
             .environment(\.skin, skin)
             .environment(\.colorScheme, skin.dark ? .dark : .light)
             .frame(width: 360)
+            .background(skin.bg)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2.0
         write(renderer, to: path)
