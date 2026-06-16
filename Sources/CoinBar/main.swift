@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // 入口:支持 --render-popover <path> 截图模式(便于设计迭代),否则正常启动菜单栏应用。
 let args = CommandLine.arguments
@@ -22,5 +23,11 @@ if let i = args.firstIndex(of: "--render-icon"), i + 1 < args.count {
         Screenshot.renderPopover(to: args[i + 1], skin: skin)
     }
 } else {
-    CoinBarApp.main()
+    // 自管理 NSStatusItem + NSPanel(见 AppDelegate),而非 MenuBarExtra —— 为了让拖拽可用。
+    MainActor.assumeIsolated {
+        let delegate = AppDelegate()
+        NSApplication.shared.delegate = delegate
+        NSApplication.shared.setActivationPolicy(.accessory)   // 等价 LSUIElement:无 Dock 图标
+        NSApplication.shared.run()
+    }
 }

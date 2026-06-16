@@ -147,15 +147,12 @@ final class TickerModel: ObservableObject {
         persist()
     }
 
-    /// 拖拽重排自选:把 from 移到 target 之前。
-    func moveWatch(_ from: String, to target: String) {
-        guard from != target, let fromIdx = watchlist.firstIndex(of: from) else { return }
-        watchlist.remove(at: fromIdx)
-        if let toIdx = watchlist.firstIndex(of: target) {
-            watchlist.insert(from, at: toIdx)
-        } else {
-            watchlist.append(from)
-        }
+    /// 拖拽重排自选(NSTableView:from=源行,to=目标插入行,插到该行之前)。
+    func moveWatch(from: Int, to: Int) {
+        guard from >= 0, from < watchlist.count, from != to else { return }
+        let sym = watchlist.remove(at: from)
+        let dest = to > from ? to - 1 : to
+        watchlist.insert(sym, at: min(max(dest, 0), watchlist.count))
         persist()
     }
 

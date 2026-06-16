@@ -1,14 +1,13 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// 菜单栏点击后弹出的主面板:搜索框 + 币列表 + 底栏。
 struct PopoverView: View {
     @EnvironmentObject var model: TickerModel
     @Environment(\.skin) private var skin
+    @Environment(\.colorScheme) private var colorScheme
     @FocusState private var searchFocused: Bool
     @State private var showSettings = false
     @State private var detailSym: String?
-    @State private var dragWatch: String?   // 拖拽排序中的交易对(跨行共享)
     var preview: Bool = false   // 截图模式:用静态控件替代 TextField,便于离屏渲染
 
     var body: some View {
@@ -61,11 +60,31 @@ struct PopoverView: View {
     private var list: some View {
         Group {
             if preview {
-                listContent            // 截图模式:无 ScrollView(ImageRenderer 不渲染其内容)
+                listContent                                  // 截图模式:静态(ImageRenderer 不渲染 List/ScrollView)
+            } else if !model.query.isEmpty {
+                ScrollView { searchList }.frame(height: listHeight)
+            } else if model.watchlist.isEmpty {
+                empty.frame(height: listHeight)
             } else {
-                ScrollView { listContent }.frame(height: listHeight)   // .window 下必须给确定高度,否则塌缩
+                watchList
             }
         }
+    }
+
+    /// 自选列表:原生 AppKit 表格(NSTableView),顺滑拖拽重排(悬浮行 + 蓝色插入线)。
+    private var watchList: some View {
+        WatchTable(model: model, skin: skin, scheme: colorScheme, onOpen: { detailSym = $0 })
+            .frame(height: listHeight)
+    }
+
+    /// 搜索结果列表(不可重排)。
+    private var searchList: some View {
+        VStack(spacing: 2) {
+            ForEach(model.displayed, id: \.self) { sym in
+                SearchRow(sym: sym).environmentObject(model)
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
     }
 
     // 列表高度:按行数估算,封顶 380 后滚动;空态给固定高度。
@@ -82,7 +101,7 @@ struct PopoverView: View {
                     empty
                 } else {
                     ForEach(model.watchlist, id: \.self) { sym in
-                        WatchRow(sym: sym, onOpen: { detailSym = $0 }, dragging: $dragWatch, preview: preview).environmentObject(model)
+                        WatchRow(sym: sym).environmentObject(model)
                     }
                 }
             } else {
@@ -134,14 +153,12 @@ struct PopoverView: View {
     }
 }
 
-/// 自选行:左侧操作(拖拽手柄 + 置顶 + 移除)+ 符号/现货合约标记 + 迷你 K 线 + 价格。
+/// 自选行:左侧操作(置顶 + 移除)+ 符号/现货合约标记 + 迷你 K 线 + 价格。
+/// 拖拽重排与单击打开详情由外层 WatchTable(NSTableView)接管,故行内不放点击手势。
 struct WatchRow: View {
     @EnvironmentObject var model: TickerModel
     @Environment(\.skin) private var skin
     let sym: String
-    var onOpen: (String) -> Void = { _ in }
-    @Binding var dragging: String?
-    var preview: Bool = false   // 截图模式:跳过拖拽,避免 ImageRenderer 画出占位符
     @State private var hover = false
     @State private var pulse: Double = 0
     @State private var pulseUp = true
@@ -151,22 +168,7 @@ struct WatchRow: View {
         let pinned = model.isPinned(sym)
         let isFut = model.futuresSyms.contains(sym)
         HStack(spacing: 8) {
-            // 左侧操作:拖拽手柄(拖拽源)/ 置顶 / 移除
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.tertiary)
-                .help("拖拽排序")
-                .applyIf(!preview) { v in
-                    v.onDrag({
-                        dragging = sym
-                        return NSItemProvider(object: sym as NSString)
-                    }, preview: {
-                        Text(t?.base ?? sym)
-                            .font(Theme.rounded(13, weight: .semibold))
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(skin.rowHover))
-                    })
-                }
+            // 左侧操作:置顶 / 移除
             Button { model.togglePin(sym) } label: {
                 Image(systemName: pinned ? "pin.fill" : "pin")
                     .font(.system(size: 12))
@@ -216,15 +218,7 @@ struct WatchRow: View {
         .padding(.horizontal, 8).padding(.vertical, 7)
         .background(RoundedRectangle(cornerRadius: 8).fill((pulseUp ? skin.up : skin.down).opacity(0.40 * pulse)))
         .background(RoundedRectangle(cornerRadius: 8).fill(hover ? skin.rowHover : .clear))
-        .overlay(RoundedRectangle(cornerRadius: 8)
-            .strokeBorder(skin.accent.opacity(dragging == sym ? 0.6 : 0), lineWidth: 1.5))
-        .opacity(dragging == sym ? 0.5 : 1)
-        .contentShape(Rectangle())
         .onHover { hover = $0 }
-        .onTapGesture { onOpen(sym) }
-        .applyIf(!preview) { v in
-            v.onDrop(of: [.text], delegate: WatchReorderDelegate(target: sym, model: model, dragging: $dragging))
-        }
         .onChange(of: t?.lastPrice) { _ in
             let d = model.flash[sym] ?? 0
             guard d != 0 else { return }
@@ -238,32 +232,6 @@ struct WatchRow: View {
 
     private func flashColor(_ d: Int) -> Color {
         d > 0 ? skin.up : (d < 0 ? skin.down : .primary)
-    }
-}
-
-/// 自选行拖拽重排:拖到某行上方,即把被拖项移到该行之前。
-private struct WatchReorderDelegate: DropDelegate {
-    let target: String
-    let model: TickerModel
-    @Binding var dragging: String?
-
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
-    func dropEntered(info: DropInfo) {
-        guard let from = dragging, from != target else { return }
-        MainActor.assumeIsolated {
-            withAnimation(.easeInOut(duration: 0.18)) { model.moveWatch(from, to: target) }
-        }
-    }
-    func performDrop(info: DropInfo) -> Bool {
-        dragging = nil
-        return true
-    }
-}
-
-extension View {
-    /// 条件化套用修饰符。用于截图模式跳过拖拽,避免 ImageRenderer 渲染出占位符。
-    @ViewBuilder func applyIf<V: View>(_ condition: Bool, _ transform: (Self) -> V) -> some View {
-        if condition { transform(self) } else { self }
     }
 }
 
