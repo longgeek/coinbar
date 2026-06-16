@@ -50,6 +50,18 @@ enum BinanceAPI {
         return await concurrent(symbols.map { "\(fapiBase)/fapi/v1/ticker/24hr?symbol=\($0)" })
     }
 
+    /// 近 24h 收盘价序列(48 根 30m K 线),用于迷你 K 线图。现货失败则回退合约。
+    static func fetchKlines(_ symbol: String) async -> [Double] {
+        let spot = await klines("\(spotBase)/api/v3/klines", symbol)
+        return spot.isEmpty ? await klines("\(fapiBase)/fapi/v1/klines", symbol) : spot
+    }
+
+    private static func klines(_ base: String, _ symbol: String) async -> [Double] {
+        guard let url = URL(string: "\(base)?symbol=\(symbol)&interval=30m&limit=48"),
+              let raw = (try? await getJSON(url)) as? [[Any]] else { return [] }
+        return raw.compactMap { Double(($0.count > 4 ? $0[4] : nil) as? String ?? "") }   // index 4 = close
+    }
+
     /// 并发抓多个单交易对 URL,跳过失败/无效(如 400)。
     private static func concurrent(_ urls: [String]) async -> [Ticker] {
         await withTaskGroup(of: Ticker?.self) { group in

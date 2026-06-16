@@ -142,7 +142,11 @@ struct WatchRow: View {
                 Text(t?.base ?? sym).font(Theme.rounded(14, weight: .semibold))
                 Text(sym).font(.system(size: 10)).foregroundStyle(.tertiary)
             }
-            Spacer()
+            Spacer(minLength: 6)
+            if let s = model.spark[sym], s.count >= 2 {
+                Sparkline(data: s, color: (s.last! >= s.first!) ? skin.up : skin.down)
+                    .frame(width: 50, height: 22)
+            }
             if let t {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(Fmt.price(t.lastPrice))
@@ -217,5 +221,35 @@ struct ChangePill: View {
             .foregroundStyle(skin.change(pct))
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Capsule().fill(skin.change(pct).opacity(0.18)))
+    }
+}
+
+/// 迷你 K 线:近 24h 收盘价折线 + 渐变面积,按净涨跌着色。
+struct Sparkline: View {
+    let data: [Double]
+    let color: Color
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            let lo = data.min() ?? 0, hi = data.max() ?? 1
+            let span = hi - lo
+            let pts: [CGPoint] = data.enumerated().map { i, v in
+                CGPoint(x: w * CGFloat(i) / CGFloat(max(data.count - 1, 1)),
+                        y: span > 0 ? h - h * CGFloat((v - lo) / span) : h / 2)
+            }
+            ZStack {
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: h))
+                    pts.forEach { p.addLine(to: $0) }
+                    p.addLine(to: CGPoint(x: w, y: h)); p.closeSubpath()
+                }
+                .fill(LinearGradient(colors: [color.opacity(0.28), color.opacity(0)],
+                                     startPoint: .top, endPoint: .bottom))
+                Path { p in
+                    p.move(to: pts[0]); pts.dropFirst().forEach { p.addLine(to: $0) }
+                }
+                .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            }
+        }
     }
 }

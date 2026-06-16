@@ -13,7 +13,9 @@ final class TickerModel: ObservableObject {
 
     private var prevPrice: [String: Double] = [:] // 变价闪烁基线
     @Published var flash: [String: Int] = [:]     // +1/-1/0
+    @Published var spark: [String: [Double]] = [:] // 迷你 K 线收盘价序列(近 24h)
     private var timer: Timer?
+    private var sparkTimer: Timer?
 
     init(watchlist: [String] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: Bool = true) {
         self.watchlist = UserDefaults.standard.stringArray(forKey: "watchlist") ?? watchlist
@@ -24,8 +26,19 @@ final class TickerModel: ObservableObject {
     func start() {
         Task { await refresh() }
         Task { allSymbols = await BinanceAPI.fetchAllSymbols() }
+        Task { await refreshSparks() }
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { await self?.refresh() }
+        }
+        sparkTimer = Timer.scheduledTimer(withTimeInterval: 90, repeats: true) { [weak self] _ in
+            Task { await self?.refreshSparks() }
+        }
+    }
+
+    func refreshSparks() async {
+        for sym in watchlist {
+            let c = await BinanceAPI.fetchKlines(sym)
+            if !c.isEmpty { spark[sym] = c }
         }
     }
 
@@ -89,6 +102,7 @@ final class TickerModel: ObservableObject {
         } else {
             watchlist.append(sym)
             Task { await refresh() }
+            Task { let c = await BinanceAPI.fetchKlines(sym); if !c.isEmpty { spark[sym] = c } }
         }
         persist()
     }
@@ -106,6 +120,7 @@ final class TickerModel: ObservableObject {
     /// 截图预览用的假数据。
     static func mock() -> TickerModel {
         let m = TickerModel(watchlist: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: false)
+        m.watchlist = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]   // 截图用纯假数据,忽略已持久化的自选
         m.tickers = [
             "BTCUSDT": Ticker(symbol: "BTCUSDT", lastPrice: 66430.12, changePct: 1.32, high: 67255, low: 65469, quoteVolume: 10_900_000_000),
             "ETHUSDT": Ticker(symbol: "ETHUSDT", lastPrice: 1762.40, changePct: 3.45, high: 1849, low: 1712, quoteVolume: 4_800_000_000),
@@ -113,6 +128,12 @@ final class TickerModel: ObservableObject {
             "BNBUSDT": Ticker(symbol: "BNBUSDT", lastPrice: 612.91, changePct: -0.63, high: 620, low: 605, quoteVolume: 837_000_000),
         ]
         m.flash = ["BTCUSDT": 1, "ETHUSDT": 1, "SOLUSDT": -1, "BNBUSDT": 0]
+        m.spark = [
+            "BTCUSDT": [64200, 64500, 64100, 64800, 65200, 65000, 65600, 66100, 65900, 66430],
+            "ETHUSDT": [1700, 1712, 1695, 1722, 1735, 1750, 1742, 1758, 1762],
+            "SOLUSDT": [76.4, 75.5, 75.8, 74.9, 74.0, 73.5, 73.9, 73.2, 73.68],
+            "BNBUSDT": [616, 615, 617, 614.5, 613.2, 612.5, 613.1, 612.91],
+        ]
         m.barPinned = "BTCUSDT"
         m.lastUpdated = Date()
         return m
