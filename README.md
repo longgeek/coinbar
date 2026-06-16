@@ -1,56 +1,77 @@
 # CoinBar
 
-一个简洁、原生的 macOS 菜单栏加密货币行情应用,用 SwiftUI 编写。
+<p align="center">
+  <img src="screenshots/icon.png" width="116" alt="CoinBar">
+</p>
 
-实时价格、变价闪烁、搜索添加自选、现货 + 合约(含资金费率)。数据来自 Binance 公共行情接口,免密钥、无地区封锁。
+<p align="center"><b>把多个币种的实时价格直接钉在 Mac 菜单栏。</b></p>
+
+<p align="center">
+  原生 macOS 菜单栏行情应用 —— 菜单栏常驻报价,点开即可搜索自选、拖拽排序、看 K 线与合约详情。<br>
+  SwiftUI + AppKit 编写,数据来自 Binance 公共行情接口,免密钥、无地区封锁。
+</p>
+
+<p align="center"><img src="screenshots/menubar.png" width="560" alt="菜单栏多币种"></p>
+
+<p align="center">
+  <img src="screenshots/popover-light.png" width="330" alt="浅色">
+  <img src="screenshots/popover-dark.png" width="330" alt="深色">
+</p>
 
 ## 功能
 
-- **菜单栏实时行情** — 把一个或多个币钉在菜单栏,价格实时更新,按 24h 涨跌着绿/红色,等宽数字不抖动,带 ▲▼ 方向箭头。
-- **精致弹出面板** — 真正的搜索框(输入即过滤全量交易对)、星标自选列表,告别系统弹窗。
-- **迷你 K 线** — 每行一条近 24h 收盘价走势,按净涨跌着色。
-- **变价闪烁** — 价格变动时整行脉冲 + 数字着绿/红色。
-- **单币详情** — 大号价格、24h 走势、最高/最低/成交额;合约还显示资金费率、下次结算、标记价、指数价,并可一键跳转 Binance。
-- **现货 + 合约** — 现货走 `data-api.binance.vision`(无地区封锁、免密钥),USDⓈ-M 合约走 `fapi.binance.com`。
-- **设置** — 刷新间隔(1/2/3/5/10s)、涨跌配色(绿涨红跌 / 红涨绿跌)、外观(跟随系统 / 浅色 / 深色)、开机自启动。
-
-## 截图
+- **菜单栏多币种** — 想盯几个就钉几个,价格在菜单栏实时刷新,按 24h 涨跌着绿/红色,变价时闪一下;等宽数字不抖动。
+- **自选弹窗** — 搜索框直接过滤全部交易对,一键加自选;**按住任意一行拖拽即可重排**;每行带近 24h 迷你 K 线和「现货 / 合约」标记。
+- **单币详情** — 大号价格 + 走势图 + 24h 高/低/成交额;合约还显示资金费率、下次结算、标记价、指数价,可一键跳转 Binance。
+- **设置** — 刷新间隔、涨跌配色(绿涨红跌 / 红涨绿跌,照顾 A 股习惯)、外观(跟随系统 / 浅 / 深)、开机自启动。
+- **GitHub 配色** — 浅色 GitHub Light、深色 GitHub Dark Dimmed,跟随系统自动切换。
 
 <p align="center">
-  <img src="screenshots/popover-light.png" width="340" alt="GitHub Light">
-  <img src="screenshots/popover-dark.png" width="340" alt="GitHub Dark Dimmed">
+  <img src="screenshots/detail-dark.png" width="300" alt="单币详情">
+  &nbsp;&nbsp;
+  <img src="screenshots/settings-dark.png" width="300" alt="设置">
 </p>
 
-> 界面图由应用自渲染生成(无需点开菜单栏):
-> `./build/CoinBar.app/Contents/MacOS/CoinBar --render-popover out.png --skin light|binance`
-> (另有 `--render-detail`、`--render-settings`、`--render-icon`。)
+## 安装
+
+到 [Releases](https://github.com/longgeek/coinbar/releases) 下载最新的 `CoinBar-*.zip`,解压后把 `CoinBar.app` 拖进「应用程序」。
+
+应用还没做签名 + 公证,首次打开会被 Gatekeeper 拦下(提示"无法验证开发者")。放行二选一:
+
+- **终端去掉隔离属性(最省事)**:
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/CoinBar.app
+  ```
+- 或者双击触发一次拦截后,到 **系统设置 → 隐私与安全性**,在最下面点 **「仍要打开」**。
+
+> macOS 15(Sequoia)起「右键 → 打开」已不能绕过,请用上面两种方式。
+
+需要 macOS 13 及以上。
 
 ## 从源码构建
 
-需要 macOS 13+ 与 Swift 工具链(Xcode 或命令行工具)。
+需要 macOS 13+ 和 Swift 工具链(Xcode 或命令行工具)。
 
 ```sh
 git clone https://github.com/longgeek/coinbar.git
 cd coinbar
-./build.sh           # 产物 -> build/CoinBar.app
-open build/CoinBar.app
+./build.sh            # 产物 build/CoinBar.app,并自动重启应用
 ```
 
-开机自启动:打开 CoinBar 设置面板里的「开机自启动」开关即可(也可在 系统设置 → 通用 → 登录项 手动添加)。
+`build.sh` 会编译 release、从代码里的 `IconView` 渲染应用图标、做 ad-hoc 签名,并退掉旧实例、重启新版(加 `--no-open` 则只构建不启动)。
 
-## 安装发布版
+## 技术说明
 
-从 [Releases](https://github.com/longgeek/coinbar/releases) 下载 `CoinBar.app`。由于尚未公证,首次启动可能被 macOS Gatekeeper 拦截——右键点应用 → **打开** → **打开**,或执行:
+- 纯 SwiftUI + AppKit,用 Swift Package Manager 构建,没有 Xcode 工程文件。
+- 菜单栏用 `NSStatusItem` + 自管理的 `NSPanel`,而非 `MenuBarExtra` —— 后者的弹窗无法成为 key window,里面的列表就拖不动;换成可成为 key 的面板后,自选列表(原生 `NSTableView`)才能流畅拖拽重排。
+- 现货走 `data-api.binance.vision`,USDⓈ-M 合约走 `fapi.binance.com`,均为公开 market-data 接口,无需 API key,也不受 binance.com 地区封锁影响。
 
-```sh
-xattr -dr com.apple.quarantine /Applications/CoinBar.app
-```
+## 路线图
 
-## 状态
-
-v0.1 — 早期版本。已实现:菜单栏多币、搜索自选、迷你 K 线、单币详情、现货 + 合约(含资金费率)、设置面板(刷新间隔/涨跌配色/外观)、应用图标。
-
-后续计划:正式签名 + 公证的发布版(当前仅 ad-hoc 签名)、设计打磨。
+- [x] 现货 + 合约、资金费率
+- [x] 菜单栏多币种、拖拽排序、迷你 K 线、单币详情
+- [x] GitHub 浅 / 深主题、开机自启动
+- [ ] Developer ID 签名 + 公证(免去首次打开的 Gatekeeper 拦截)
 
 ## 许可
 
