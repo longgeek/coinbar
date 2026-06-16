@@ -9,7 +9,7 @@ final class TickerModel: ObservableObject {
     @Published var query: String = ""
     @Published var allSymbols: [String] = []     // 搜索用的全量符号
     @Published var lastUpdated: Date?
-    @Published var barPinned: String?             // 菜单栏显示哪个币(nil=第一个)
+    @Published var barCoins: [String]             // 菜单栏显示的币(可多个;空=显示首个自选)
 
     // 设置项(设置面板里可调)
     @Published var refreshSec: Int                // 刷新间隔(秒)
@@ -24,7 +24,7 @@ final class TickerModel: ObservableObject {
 
     init(watchlist: [String] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: Bool = true) {
         self.watchlist = UserDefaults.standard.stringArray(forKey: "watchlist") ?? watchlist
-        self.barPinned = UserDefaults.standard.string(forKey: "barPinned")
+        self.barCoins = UserDefaults.standard.stringArray(forKey: "barCoins") ?? []
         self.refreshSec = UserDefaults.standard.object(forKey: "refreshSec") as? Int ?? 3
         self.redUp = UserDefaults.standard.bool(forKey: "redUp")
         self.appearance = UserDefaults.standard.string(forKey: "appearance") ?? "auto"
@@ -92,17 +92,13 @@ final class TickerModel: ObservableObject {
     }
 
     // 菜单栏文案
-    var barText: String {
-        let sym = barPinned ?? watchlist.first
-        guard let sym, let t = tickers[sym] else { return "CoinBar" }
-        return "\(t.base) \(Fmt.price(t.lastPrice))"
-    }
-
-    /// 菜单栏方向(按 24h 涨跌,始终有值 → 箭头宽度稳定不抖):+1 涨 / -1 跌 / 0 无数据。
-    var barDir: Int {
-        let sym = barPinned ?? watchlist.first
-        guard let sym, let t = tickers[sym] else { return 0 }
-        return t.changePct >= 0 ? 1 : -1
+    /// 菜单栏要显示的若干币:(基础符号, 价格文本, 方向 +1/-1)。空=显示首个自选。
+    func barSegments() -> [(base: String, price: String, dir: Int)] {
+        let coins = barCoins.isEmpty ? Array(watchlist.prefix(1)) : barCoins
+        return coins.compactMap { sym in
+            guard let t = tickers[sym] else { return nil }
+            return (t.base, Fmt.price(t.lastPrice), t.changePct >= 0 ? 1 : -1)
+        }
     }
 
     // 当前应展示的列表(空搜索=自选;有搜索=过滤全量符号)
@@ -124,7 +120,7 @@ final class TickerModel: ObservableObject {
     func toggleWatch(_ sym: String) {
         if let i = watchlist.firstIndex(of: sym) {
             watchlist.remove(at: i)
-            if barPinned == sym { barPinned = nil }
+            barCoins.removeAll { $0 == sym }
         } else {
             watchlist.append(sym)
             Task { await refresh() }
@@ -133,14 +129,16 @@ final class TickerModel: ObservableObject {
         persist()
     }
 
-    func setBarPinned(_ sym: String) {
-        barPinned = (barPinned == sym) ? nil : sym
+    func isPinned(_ sym: String) -> Bool { barCoins.contains(sym) }
+
+    func togglePin(_ sym: String) {
+        if let i = barCoins.firstIndex(of: sym) { barCoins.remove(at: i) } else { barCoins.append(sym) }
         persist()
     }
 
     private func persist() {
         UserDefaults.standard.set(watchlist, forKey: "watchlist")
-        UserDefaults.standard.set(barPinned, forKey: "barPinned")
+        UserDefaults.standard.set(barCoins, forKey: "barCoins")
     }
 
     /// 截图预览用的假数据。
@@ -160,7 +158,7 @@ final class TickerModel: ObservableObject {
             "SOLUSDT": [76.4, 75.5, 75.8, 74.9, 74.0, 73.5, 73.9, 73.2, 73.68],
             "BNBUSDT": [616, 615, 617, 614.5, 613.2, 612.5, 613.1, 612.91],
         ]
-        m.barPinned = "BTCUSDT"
+        m.barCoins = ["BTCUSDT"]
         m.lastUpdated = Date()
         return m
     }

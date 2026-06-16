@@ -24,24 +24,32 @@ struct BarLabel: View {
     }
 
     private var barImage: NSImage {
-        let d = model.barDir
-        let arrow = d == 0 ? "" : (d > 0 ? "  ▲" : "  ▼")
-        let text = model.barText + arrow
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         let green = NSColor(srgbRed: 0.09, green: 0.78, blue: 0.52, alpha: 1)
         let red = NSColor(srgbRed: 0.92, green: 0.22, blue: 0.26, alpha: 1)
         let upC = model.redUp ? red : green, downC = model.redUp ? green : red
-        let color: NSColor = d == 0 ? NSColor(white: 0.65, alpha: 1) : (d > 0 ? upC : downC)
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium),
-            .foregroundColor: color,
-        ]
-        let s = NSAttributedString(string: text, attributes: attrs)
-        let sz = s.size()
+
+        let attr = NSMutableAttributedString()
+        let segs = model.barSegments()
+        if segs.isEmpty {
+            attr.append(NSAttributedString(string: "CoinBar",
+                attributes: [.font: font, .foregroundColor: NSColor(white: 0.65, alpha: 1)]))
+        } else {
+            for (i, seg) in segs.enumerated() {
+                if i > 0 {
+                    attr.append(NSAttributedString(string: "   ", attributes: [.font: font]))
+                }
+                let arrow = seg.dir >= 0 ? "▲" : "▼"
+                attr.append(NSAttributedString(string: "\(seg.base) \(seg.price)\(arrow)",
+                    attributes: [.font: font, .foregroundColor: seg.dir >= 0 ? upC : downC]))
+            }
+        }
+        let sz = attr.size()
         let img = NSImage(size: NSSize(width: ceil(sz.width) + 2, height: ceil(sz.height) + 2))
         img.lockFocus()
-        s.draw(at: NSPoint(x: 1, y: 1))
+        attr.draw(at: NSPoint(x: 1, y: 1))
         img.unlockFocus()
-        img.isTemplate = false   // 关键:非模板 → 保留绿/红颜色
+        img.isTemplate = false   // 非模板 → 保留绿/红颜色
         return img
     }
 }

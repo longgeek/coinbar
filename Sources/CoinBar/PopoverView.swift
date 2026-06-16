@@ -140,9 +140,9 @@ struct WatchRow: View {
 
     var body: some View {
         let t = model.tickers[sym]
-        let pinned = model.barPinned == sym
+        let pinned = model.isPinned(sym)
         HStack(spacing: 10) {
-            Button { model.setBarPinned(sym) } label: {
+            Button { model.togglePin(sym) } label: {
                 Image(systemName: pinned ? "star.fill" : "star")
                     .font(.system(size: 12))
                     .foregroundStyle(pinned ? skin.accent : Color.secondary.opacity(0.5))
