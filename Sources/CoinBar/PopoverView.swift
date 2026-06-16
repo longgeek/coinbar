@@ -3,20 +3,22 @@ import SwiftUI
 /// 菜单栏点击后弹出的主面板:搜索框 + 币列表 + 底栏。
 struct PopoverView: View {
     @EnvironmentObject var model: TickerModel
+    @Environment(\.skin) private var skin
     @FocusState private var searchFocused: Bool
     var preview: Bool = false   // 截图模式:用静态控件替代 TextField,便于离屏渲染
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().opacity(0.5)
+            Divider().overlay(skin.hairline)
             list
-            Divider().opacity(0.5)
+            Divider().overlay(skin.hairline)
             footer
         }
         .frame(width: 330)
         .frame(maxHeight: 460)
-        .background(.regularMaterial)
+        .background(skin.bg)
+        .environment(\.colorScheme, skin.dark ? .dark : .light)
     }
 
     // MARK: 顶部搜索
@@ -88,7 +90,7 @@ struct PopoverView: View {
     // MARK: 底栏
     private var footer: some View {
         HStack(spacing: 10) {
-            Circle().fill(Theme.up).frame(width: 6, height: 6)
+            Circle().fill(skin.up).frame(width: 6, height: 6)
                 .opacity(model.lastUpdated == nil ? 0 : 1)
             Text(updatedText).font(.system(size: 11)).foregroundStyle(.secondary)
             Spacer()
@@ -115,6 +117,7 @@ struct PopoverView: View {
 /// 自选行:置顶星 + 符号 + 价格(变价着色)+ 涨跌幅胶囊。
 struct WatchRow: View {
     @EnvironmentObject var model: TickerModel
+    @Environment(\.skin) private var skin
     let sym: String
     @State private var hover = false
 
@@ -125,7 +128,7 @@ struct WatchRow: View {
             Button { model.setBarPinned(sym) } label: {
                 Image(systemName: pinned ? "star.fill" : "star")
                     .font(.system(size: 12))
-                    .foregroundStyle(pinned ? Theme.accent : Color.secondary.opacity(0.5))
+                    .foregroundStyle(pinned ? skin.accent : Color.secondary.opacity(0.5))
             }.buttonStyle(.plain).help(pinned ? "已在菜单栏显示" : "显示到菜单栏")
 
             VStack(alignment: .leading, spacing: 1) {
@@ -145,24 +148,25 @@ struct WatchRow: View {
             }
             if hover {
                 Button { model.toggleWatch(sym) } label: {
-                    Image(systemName: "minus.circle.fill").foregroundStyle(Theme.down.opacity(0.8))
+                    Image(systemName: "minus.circle.fill").foregroundStyle(skin.down.opacity(0.85))
                 }.buttonStyle(.plain).help("移除")
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8).fill(hover ? Color.primary.opacity(0.06) : .clear))
+        .background(RoundedRectangle(cornerRadius: 8).fill(hover ? skin.rowHover : .clear))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
     }
 
     private func flashColor(_ d: Int) -> Color {
-        d > 0 ? Theme.up : (d < 0 ? Theme.down : .primary)
+        d > 0 ? skin.up : (d < 0 ? skin.down : .primary)
     }
 }
 
 /// 搜索结果行:符号 + 添加/已添加。
 struct SearchRow: View {
     @EnvironmentObject var model: TickerModel
+    @Environment(\.skin) private var skin
     let sym: String
     @State private var hover = false
 
@@ -176,11 +180,11 @@ struct SearchRow: View {
             Button { model.toggleWatch(sym) } label: {
                 Image(systemName: added ? "checkmark.circle.fill" : "plus.circle")
                     .font(.system(size: 16))
-                    .foregroundStyle(added ? Theme.up : Theme.accent)
+                    .foregroundStyle(added ? skin.up : skin.accent)
             }.buttonStyle(.plain)
         }
         .padding(.horizontal, 8).padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8).fill(hover ? Color.primary.opacity(0.06) : .clear))
+        .background(RoundedRectangle(cornerRadius: 8).fill(hover ? skin.rowHover : .clear))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
     }
@@ -188,12 +192,13 @@ struct SearchRow: View {
 
 /// 涨跌幅胶囊。
 struct ChangePill: View {
+    @Environment(\.skin) private var skin
     let pct: Double
     var body: some View {
         Text(Fmt.pct(pct))
             .font(Theme.mono(10, weight: .semibold))
-            .foregroundStyle(Theme.changeColor(pct))
+            .foregroundStyle(skin.change(pct))
             .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(Theme.changeColor(pct).opacity(0.15)))
+            .background(Capsule().fill(skin.change(pct).opacity(0.18)))
     }
 }

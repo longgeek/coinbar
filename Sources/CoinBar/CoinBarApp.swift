@@ -8,7 +8,7 @@ struct CoinBarApp: App {
         MenuBarExtra {
             PopoverView()
                 .environmentObject(model)
-                .onAppear { model.start() }
+                .environment(\.skin, .lightNative)   // 默认皮肤(后续可在面板里切换)
         } label: {
             Text(model.barText)
         }

@@ -15,9 +15,10 @@ final class TickerModel: ObservableObject {
     @Published var flash: [String: Int] = [:]     // +1/-1/0
     private var timer: Timer?
 
-    init(watchlist: [String] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]) {
+    init(watchlist: [String] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: Bool = true) {
         self.watchlist = UserDefaults.standard.stringArray(forKey: "watchlist") ?? watchlist
         self.barPinned = UserDefaults.standard.string(forKey: "barPinned")
+        if autostart { start() }   // 启动即抓数据(不必等用户点开面板)
     }
 
     func start() {
@@ -88,7 +89,7 @@ final class TickerModel: ObservableObject {
 
     /// 截图预览用的假数据。
     static func mock() -> TickerModel {
-        let m = TickerModel(watchlist: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"])
+        let m = TickerModel(watchlist: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: false)
         m.tickers = [
             "BTCUSDT": Ticker(symbol: "BTCUSDT", lastPrice: 66430.12, changePct: 1.32, high: 67255, low: 65469, quoteVolume: 10_900_000_000),
             "ETHUSDT": Ticker(symbol: "ETHUSDT", lastPrice: 1762.40, changePct: 3.45, high: 1849, low: 1712, quoteVolume: 4_800_000_000),

@@ -5,10 +5,11 @@ import AppKit
 /// 用法:CoinBar --render-popover /tmp/out.png
 enum Screenshot {
     @MainActor
-    static func renderPopover(to path: String) {
+    static func renderPopover(to path: String, skin: Skin = .lightNative) {
         let model = TickerModel.mock()
         let view = PopoverView(preview: true)
             .environmentObject(model)
+            .environment(\.skin, skin)
             .frame(width: 330, height: 360)
 
         let renderer = ImageRenderer(content: view)
