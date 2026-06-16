@@ -5,6 +5,26 @@ import AppKit
 /// 用法:CoinBar --render-popover /tmp/out.png
 enum Screenshot {
     @MainActor
+    static func renderIcon(to path: String) {
+        let renderer = ImageRenderer(content: IconView())
+        renderer.scale = 1.0   // IconView 本身就是 1024×1024
+        write(renderer, to: path)
+    }
+
+    @MainActor
+    private static func write(_ renderer: ImageRenderer<some View>, to path: String) {
+        guard let img = renderer.nsImage,
+              let tiff = img.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else {
+            FileHandle.standardError.write(Data("render failed\n".utf8)); exit(1)
+        }
+        do { try png.write(to: URL(fileURLWithPath: path)); print("wrote \(path)") }
+        catch { FileHandle.standardError.write(Data("write failed: \(error)\n".utf8)); exit(1) }
+        exit(0)
+    }
+
+    @MainActor
     static func renderPopover(to path: String, skin: Skin = .lightNative) {
         let model = TickerModel.mock()
         let view = PopoverView(preview: true)
