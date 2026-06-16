@@ -55,3 +55,12 @@ PLIST
 codesign --force --deep --sign - "$OUT" 2>/dev/null || true
 
 echo "==> Built $OUT"
+
+# 构建后自动重启:退掉旧实例再打开新版(菜单栏常驻应用,open 不会自动换上新二进制)。
+# 发布/CI 等不想自动启动时,加 `--no-open` 跳过。
+if [[ " $* " != *" --no-open "* ]]; then
+  echo "==> 重启 $APP"
+  killall "$APP" 2>/dev/null || true
+  for _ in 1 2 3 4 5; do pgrep -x "$APP" >/dev/null || break; sleep 0.3; done
+  open "$OUT"
+fi
