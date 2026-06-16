@@ -21,15 +21,15 @@ struct Skin: Equatable {
              up: down, down: up, accent: accent, bg: bg, rowHover: rowHover, hairline: hairline)
     }
 
-    /// A. 清爽原生:浅色材质 + 克制配色,最贴近 macOS 系统观感。
+    /// A. GitHub Light:纯白底 + GitHub 配色。浅色模式用它。
     static let lightNative = Skin(
-        id: "light", displayName: "清爽原生", dark: false,
-        up: Color(red: 0.09, green: 0.78, blue: 0.52),
-        down: Color(red: 0.92, green: 0.22, blue: 0.26),
-        accent: Color(red: 0.95, green: 0.73, blue: 0.05),
-        bg: AnyShapeStyle(.regularMaterial),
-        rowHover: Color.primary.opacity(0.06),
-        hairline: Color.primary.opacity(0.08))
+        id: "light", displayName: "GitHub 浅色", dark: false,
+        up: Color(hex: 0x1A7F37),
+        down: Color(hex: 0xCF222E),
+        accent: Color(hex: 0x0969DA),
+        bg: AnyShapeStyle(Color.white),
+        rowHover: Color.black.opacity(0.05),
+        hairline: Color.black.opacity(0.10))
 
     /// B. 深色终端:近黑底 + 霓虹涨跌色,数据密集、专业感。
     static let darkTerminal = Skin(
@@ -41,15 +41,15 @@ struct Skin: Equatable {
         rowHover: Color.white.opacity(0.07),
         hairline: Color.white.opacity(0.08))
 
-    /// C. 币安金:黑金品牌感。
+    /// C. GitHub Dark Dimmed:柔和深色(#22272E)+ GitHub 配色。深色模式用它。
     static let binance = Skin(
-        id: "binance", displayName: "币安金", dark: true,
-        up: Color(red: 0.01, green: 0.75, blue: 0.46),
-        down: Color(red: 0.96, green: 0.27, blue: 0.36),
-        accent: Color(red: 0.95, green: 0.73, blue: 0.05),
-        bg: AnyShapeStyle(Color(red: 0.078, green: 0.082, blue: 0.098)),
-        rowHover: Color(red: 0.95, green: 0.73, blue: 0.05).opacity(0.10),
-        hairline: Color.white.opacity(0.07))
+        id: "binance", displayName: "GitHub Dimmed", dark: true,
+        up: Color(hex: 0x57AB5A),
+        down: Color(hex: 0xE5534B),
+        accent: Color(hex: 0x539BF5),
+        bg: AnyShapeStyle(Color(hex: 0x22272E)),
+        rowHover: Color.white.opacity(0.06),
+        hairline: Color.white.opacity(0.09))
 
     static let all = [lightNative, darkTerminal, binance]
     static func byId(_ id: String) -> Skin { all.first { $0.id == id } ?? lightNative }

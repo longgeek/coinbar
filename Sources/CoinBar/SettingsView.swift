@@ -41,6 +41,7 @@ struct SettingsView: View {
                 }
             }
             .padding(14)
+            .tint(skin.accent)   // 分段控件选中色与外部按钮统一(用皮肤 accent)
 
             Divider().overlay(skin.hairline)
             HStack {
