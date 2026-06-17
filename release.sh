@@ -36,7 +36,8 @@ cat > appcast.xml <<EOF
 </rss>
 EOF
 
-echo "==> 已生成 $ZIP 与 appcast.xml（v$VERSION）"
-echo "    下一步："
-echo "    git add appcast.xml && git commit -m \"release: v$VERSION\" && git push"
-echo "    gh release create v$VERSION \"$ZIP\" --title \"CoinBar v$VERSION\""
+# 注意:bash 下 $VAR 紧贴全角字符会被并入变量名,故一律用 ${VAR} 且 echo 内用半角。
+echo "==> 已生成 ${ZIP} 与 appcast.xml (v${VERSION})"
+echo "下一步:"
+echo "  git add appcast.xml && git commit -m \"release: v${VERSION}\" && git push"
+echo "  gh release create v${VERSION} \"${ZIP}\" --title \"CoinBar v${VERSION}\""
