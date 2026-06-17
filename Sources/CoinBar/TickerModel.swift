@@ -39,6 +39,7 @@ final class TickerModel: ObservableObject {
     @Published var alerts: [PriceAlert] = []         // 价格提醒(到价系统通知)
     private var timer: Timer?
     private var sparkTimer: Timer?
+    private var stream: PriceStream?
 
     init(watchlist: [String] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: Bool = true) {
         self.watchlist = UserDefaults.standard.stringArray(forKey: "watchlist") ?? watchlist
@@ -68,6 +69,8 @@ final class TickerModel: ObservableObject {
             Task { await self?.refreshSparks() }
             Task { await self?.refreshDayOpens() }
         }
+        stream = PriceStream { [weak self] t in self?.ingest(t) }   // WebSocket 实时推送(REST 仍跑作兜底)
+        stream?.update(symbols: watchlist)
     }
 
     /// 按当前 refreshSec 重建价格定时器(改间隔时调用)。
@@ -160,6 +163,17 @@ final class TickerModel: ObservableObject {
         lastUpdated = Date()
     }
 
+    /// 单条行情入库(WebSocket 推送与 REST 共用):更新价格、变价方向、检查提醒。
+    func ingest(_ t: Ticker) {
+        guard watchlist.contains(t.symbol) else { return }
+        let dir = prevPrice[t.symbol].map { t.lastPrice > $0 ? 1 : (t.lastPrice < $0 ? -1 : 0) } ?? 0
+        flash[t.symbol] = dir
+        prevPrice[t.symbol] = t.lastPrice
+        tickers[t.symbol] = t
+        checkAlerts()
+        lastUpdated = Date()
+    }
+
     // 菜单栏文案
     /// 菜单栏要显示的若干币:(基础符号, 价格文本, 方向 +1/-1)。空=显示首个自选。
     func barSegments() -> [(base: String, price: String, pct: String, dir: Int)] {
@@ -199,6 +213,7 @@ final class TickerModel: ObservableObject {
             Task { if let o = await BinanceAPI.fetchDailyOpen(sym) { dayOpen[sym] = o } }
         }
         persist()
+        stream?.update(symbols: watchlist)   // WS 重新订阅
     }
 
     func isPinned(_ sym: String) -> Bool { barCoins.contains(sym) }
