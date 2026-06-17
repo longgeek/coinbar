@@ -62,7 +62,7 @@ enum Screenshot {
     @MainActor
     static func renderDetail(to path: String, sym: String, skin: Skin = .lightNative) {
         let model = TickerModel.mock()
-        let view = DetailView(sym: sym, dismiss: {})
+        let view = DetailView(sym: sym, dismiss: {}, preview: true)
             .environmentObject(model)
             .environment(\.skin, skin)
             .environment(\.colorScheme, skin.dark ? .dark : .light)

@@ -2,6 +2,14 @@ import SwiftUI
 import Combine
 import ServiceManagement
 
+/// 价格提醒:到达目标价触发(above=true 涨破 ≥price;false 跌破 ≤price)。一次性,触发后移除。
+struct PriceAlert: Codable, Equatable, Identifiable {
+    let sym: String
+    let price: Double
+    let above: Bool
+    var id: String { "\(sym)|\(price)|\(above)" }
+}
+
 /// 应用状态:自选、行情、搜索、菜单栏文案。
 @MainActor
 final class TickerModel: ObservableObject {
@@ -28,12 +36,15 @@ final class TickerModel: ObservableObject {
     @Published var dayOpen: [String: Double] = [:]  // 今日(UTC 00:00)开盘价,用于「今日」涨跌
     @Published var funding: [String: Funding] = [:] // 合约资金费率/标记价(详情页)
     @Published var futuresSyms: Set<String> = []    // 以合约数据展示的币
+    @Published var alerts: [PriceAlert] = []         // 价格提醒(到价系统通知)
     private var timer: Timer?
     private var sparkTimer: Timer?
 
     init(watchlist: [String] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: Bool = true) {
         self.watchlist = UserDefaults.standard.stringArray(forKey: "watchlist") ?? watchlist
         self.barCoins = UserDefaults.standard.stringArray(forKey: "barCoins") ?? []
+        if let d = UserDefaults.standard.data(forKey: "alerts"),
+           let a = try? JSONDecoder().decode([PriceAlert].self, from: d) { self.alerts = a }
         self.refreshSec = UserDefaults.standard.object(forKey: "refreshSec") as? Int ?? 3
         self.redUp = UserDefaults.standard.bool(forKey: "redUp")
         self.appearance = UserDefaults.standard.string(forKey: "appearance") ?? "auto"
@@ -145,6 +156,7 @@ final class TickerModel: ObservableObject {
             }
         }
         tickers = map.filter { syms.contains($0.key) }     // 清理已移除的
+        checkAlerts()
         lastUpdated = Date()
     }
 
@@ -205,6 +217,50 @@ final class TickerModel: ObservableObject {
         persist()
     }
 
+    // MARK: 价格提醒
+    /// 加提醒:目标价 ≥ 现价 → 涨破触发;< 现价 → 跌破触发。
+    func addAlert(_ sym: String, price: Double) {
+        guard price > 0 else { return }
+        let above = price >= (tickers[sym]?.lastPrice ?? price)
+        let a = PriceAlert(sym: sym, price: price, above: above)
+        guard !alerts.contains(a) else { return }
+        alerts.append(a)
+        persistAlerts()
+        Notifier.requestAuth()
+    }
+
+    func removeAlert(_ a: PriceAlert) {
+        alerts.removeAll { $0 == a }
+        persistAlerts()
+    }
+
+    func alerts(for sym: String) -> [PriceAlert] {
+        alerts.filter { $0.sym == sym }.sorted { $0.price > $1.price }
+    }
+
+    private func persistAlerts() {
+        UserDefaults.standard.set(try? JSONEncoder().encode(alerts), forKey: "alerts")
+    }
+
+    /// 每次刷新检查:命中的提醒发系统通知并移除(一次性)。
+    private func checkAlerts() {
+        guard !alerts.isEmpty else { return }
+        let fired = alerts.filter { a in
+            guard let t = tickers[a.sym] else { return false }
+            return a.above ? t.lastPrice >= a.price : t.lastPrice <= a.price
+        }
+        guard !fired.isEmpty else { return }
+        for a in fired {
+            let base = tickers[a.sym]?.base ?? a.sym
+            let now = Fmt.price(tickers[a.sym]?.lastPrice ?? a.price)
+            Notifier.fire(
+                title: "\(base) \(a.above ? L("涨破", "rose above") : L("跌破", "fell below")) \(Fmt.price(a.price))",
+                body: L("当前 \(now)", "Now \(now)"))
+        }
+        alerts.removeAll { fired.contains($0) }
+        persistAlerts()
+    }
+
     private func persist() {
         UserDefaults.standard.set(watchlist, forKey: "watchlist")
         UserDefaults.standard.set(barCoins, forKey: "barCoins")
@@ -231,6 +287,8 @@ final class TickerModel: ObservableObject {
         m.funding = ["SOLUSDT": Funding(rate: -0.00008, mark: 73.66, index: 73.70,
                                         nextTime: Date().addingTimeInterval(2400).timeIntervalSince1970 * 1000)]
         m.barCoins = ["BTCUSDT"]
+        m.alerts = [PriceAlert(sym: "SOLUSDT", price: 80, above: true),
+                    PriceAlert(sym: "SOLUSDT", price: 70, above: false)]
         m.lastUpdated = Date()
         return m
     }

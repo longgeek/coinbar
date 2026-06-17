@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 import Sparkle
+import UserNotifications
 
 /// 自管理的菜单栏应用外壳:NSStatusItem(彩色标签) + 自定义可成为 key 的 NSPanel。
 ///
@@ -9,7 +10,7 @@ import Sparkle
 /// 而 NSTableView 的拖拽重排需要窗口能成为 key 才能追踪鼠标 —— 故弹窗里怎么都拖不动。
 /// 自己管理一个 canBecomeKey=true 的 NSPanel 即可让原生拖拽正常工作(Yahoo 财经同理,用的是真窗口)。
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     let model = TickerModel()
     private var statusItem: NSStatusItem!
     private var panel: CoinPanel?
@@ -30,6 +31,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .sink { [weak self] in MainActor.assumeIsolated { self?.updateLabel() } }
         _ = updaterController   // 启动 Sparkle 自动更新检查
         model.onCheckForUpdates = { [weak self] in self?.updaterController.checkForUpdates(nil) }
+        UNUserNotificationCenter.current().delegate = self   // 前台也显示通知横幅
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
     }
 
     // MARK: 菜单栏彩色标签(非模板 NSImage,保留绿/红)

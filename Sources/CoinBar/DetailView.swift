@@ -7,6 +7,8 @@ struct DetailView: View {
     @Environment(\.openURL) private var openURL
     let sym: String
     var dismiss: () -> Void
+    var preview: Bool = false   // 截图模式:用静态框替代 TextField
+    @State private var alertText = ""
 
     var body: some View {
         let t = model.tickers[sym]
@@ -53,6 +55,9 @@ struct DetailView: View {
             .padding(.horizontal, 14).padding(.vertical, 8)
             Divider().overlay(skin.hairline)
 
+            alertsSection
+            Divider().overlay(skin.hairline)
+
             Button {
                 let path = isFut ? "futures/\(sym)" : "trade/\(base)_USDT?type=spot"
                 if let url = URL(string: "https://www.binance.com/\(L("zh-CN", "en"))/\(path)") { openURL(url) }
@@ -67,6 +72,46 @@ struct DetailView: View {
             .buttonStyle(.plain).foregroundStyle(skin.accent)
         }
         .onAppear { if isFut { Task { await model.loadFunding(sym) } } }
+    }
+
+    /// 价格提醒:已设的提醒(可删)+ 添加目标价。到价发系统通知。
+    private var alertsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L("价格提醒", "Price Alerts"))
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            ForEach(model.alerts(for: sym)) { a in
+                HStack(spacing: 6) {
+                    Image(systemName: a.above ? "arrow.up" : "arrow.down")
+                        .font(.system(size: 10, weight: .bold)).foregroundStyle(a.above ? skin.up : skin.down)
+                    Text(Fmt.price(a.price)).font(Theme.mono(12, weight: .medium))
+                    Spacer()
+                    Button { model.removeAlert(a) } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                    }.buttonStyle(.plain)
+                }
+            }
+            HStack(spacing: 6) {
+                if preview {
+                    Text(L("目标价", "Target price")).font(Theme.mono(12)).foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 7).padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 5).stroke(skin.hairline))
+                } else {
+                    TextField(L("目标价", "Target price"), text: $alertText)
+                        .textFieldStyle(.roundedBorder).font(Theme.mono(12))
+                        .onSubmit(addAlert)
+                }
+                Button(L("添加", "Add"), action: addAlert)
+                    .buttonStyle(.plain).foregroundStyle(skin.accent).font(.system(size: 12, weight: .medium))
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+    }
+
+    private func addAlert() {
+        if let p = Double(alertText.trimmingCharacters(in: .whitespaces)), p > 0 {
+            model.addAlert(sym, price: p); alertText = ""
+        }
     }
 
     private func header(base: String, isFut: Bool) -> some View {
