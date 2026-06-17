@@ -72,7 +72,7 @@ struct DetailView: View {
         HStack(spacing: 8) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left").font(.system(size: 14, weight: .semibold))
-            }.buttonStyle(.plain)
+            }.buttonStyle(IconButtonStyle()).help("返回")
             Text(base).font(Theme.rounded(16, weight: .bold))
             Text(isFut ? "合约" : "现货")
                 .font(.system(size: 10, weight: .semibold))

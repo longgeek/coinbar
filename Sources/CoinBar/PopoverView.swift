@@ -8,6 +8,7 @@ struct PopoverView: View {
     @FocusState private var searchFocused: Bool
     @State private var showSettings = false
     @State private var detailSym: String?
+    @State private var refreshSpin = 0.0
     var preview: Bool = false   // 截图模式:用静态控件替代 TextField,便于离屏渲染
 
     var body: some View {
@@ -53,7 +54,7 @@ struct PopoverView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .frame(height: 44)   // 与底栏同高
     }
 
     // MARK: 列表
@@ -130,20 +131,23 @@ struct PopoverView: View {
                 .opacity(model.lastUpdated == nil ? 0 : 1)
             Text(updatedText).font(.system(size: 11)).foregroundStyle(.secondary)
             Spacer()
-            Button { Task { await model.refresh() } } label: {
-                Image(systemName: "arrow.clockwise")
-            }.buttonStyle(.plain).help("立即刷新")
+            Button {
+                withAnimation(.easeInOut(duration: 0.6)) { refreshSpin += 360 }   // 点击转一圈作反馈
+                Task { await model.refresh() }
+            } label: {
+                Image(systemName: "arrow.clockwise").rotationEffect(.degrees(refreshSpin))
+            }.buttonStyle(IconButtonStyle()).help("立即刷新")
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape")
-            }.buttonStyle(.plain).help("设置")
+            }.buttonStyle(IconButtonStyle()).help("设置")
             Button { NSApp.terminate(nil) } label: {
                 Image(systemName: "power")
-            }.buttonStyle(.plain).help("退出 CoinBar")
+            }.buttonStyle(IconButtonStyle()).help("退出 CoinBar")
         }
         .font(.system(size: 12))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .frame(height: 44)   // 与顶部搜索区同高
     }
 
     private var updatedText: String {

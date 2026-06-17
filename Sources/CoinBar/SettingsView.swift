@@ -45,7 +45,7 @@ struct SettingsView: View {
         HStack(spacing: 8) {
             Button { show = false } label: {
                 Image(systemName: "chevron.left").font(.system(size: 14, weight: .semibold))
-            }.buttonStyle(.plain)
+            }.buttonStyle(IconButtonStyle()).help("返回")
             Text("设置").font(Theme.rounded(15, weight: .semibold))
             Spacer()
         }

@@ -24,8 +24,8 @@ struct Skin: Equatable {
     /// A. GitHub Light:纯白底 + GitHub 配色。浅色模式用它。
     static let lightNative = Skin(
         id: "light", displayName: "GitHub 浅色", dark: false,
-        up: Color(hex: 0x1A7F37),
-        down: Color(hex: 0xCF222E),
+        up: Color(hex: 0x1B9834),    // slum-trader trading-up  浅 132 70% 35%
+        down: Color(hex: 0xDF2920),  // slum-trader trading-down 浅 3 75% 50%
         accent: Color(hex: 0x0969DA),
         bg: AnyShapeStyle(Color.white),
         rowHover: Color.black.opacity(0.05),
@@ -44,8 +44,8 @@ struct Skin: Equatable {
     /// C. GitHub Dark Dimmed:柔和深色(#22272E)+ GitHub 配色。深色模式用它。
     static let binance = Skin(
         id: "binance", displayName: "GitHub Dimmed", dark: true,
-        up: Color(hex: 0x57AB5A),
-        down: Color(hex: 0xE5534B),
+        up: Color(hex: 0x53C66A),    // slum-trader trading-up  深 132 50% 55%
+        down: Color(hex: 0xE3564F),  // slum-trader trading-down 深 3 73% 60%
         accent: Color(hex: 0x539BF5),
         bg: AnyShapeStyle(Color(hex: 0x22272E)),
         rowHover: Color.white.opacity(0.06),
@@ -69,5 +69,26 @@ extension EnvironmentValues {
     var skin: Skin {
         get { self[SkinKey.self] }
         set { self[SkinKey.self] = newValue }
+    }
+}
+
+/// 图标按钮:更大的可点区 + 悬停高亮 + 按压反馈。用于返回键、底栏刷新/设置/退出等。
+struct IconButtonStyle: ButtonStyle {
+    var size: CGFloat = 28
+    func makeBody(configuration: Configuration) -> some View { IconButtonBody(configuration: configuration, size: size) }
+
+    private struct IconButtonBody: View {
+        let configuration: ButtonStyle.Configuration
+        let size: CGFloat
+        @Environment(\.skin) private var skin
+        @State private var hover = false
+        var body: some View {
+            configuration.label
+                .frame(width: size, height: size)
+                .background(RoundedRectangle(cornerRadius: 6).fill(hover ? skin.rowHover : .clear))
+                .contentShape(RoundedRectangle(cornerRadius: 6))
+                .opacity(configuration.isPressed ? 0.45 : 1)
+                .onHover { hover = $0 }
+        }
     }
 }

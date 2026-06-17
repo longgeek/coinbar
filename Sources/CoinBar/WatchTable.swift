@@ -245,7 +245,9 @@ final class WatchCellView: NSTableCellView {
         self.onPin = onPin; self.onRemove = onRemove
 
         pinButton.image = Self.symbol(d.pinned ? "pin.fill" : "pin", size: 12)
-        pinButton.contentTintColor = d.pinned ? c.accent : NSColor.secondaryLabelColor.withAlphaComponent(0.45)
+        // 未置顶用动态的 tertiaryLabelColor —— 自动按外观解析成浅/深灰;
+        // 不能用 secondaryLabelColor.withAlphaComponent(),那会按当时外观定格成静态色,暗色下发黑。
+        pinButton.contentTintColor = d.pinned ? c.accent : .tertiaryLabelColor
         pinButton.toolTip = d.pinned ? "已固定到菜单栏" : "固定到菜单栏"
         removeButton.image = Self.symbol("minus.circle.fill", size: 12)
         removeButton.contentTintColor = c.down.withAlphaComponent(0.75)
