@@ -26,6 +26,7 @@
 - **设置** —— 刷新间隔、涨跌配色（绿涨红跌 / 红涨绿跌，照顾 A 股习惯）、外观（跟随系统 / 浅 / 深）、开机自启动。
 - **GitHub 配色** —— 浅色 GitHub Light、深色 GitHub Dark Dimmed，跟随系统自动切换。
 - **自动更新** —— 内置 Sparkle，发新版会自动提示并升级（也可在设置里手动「检查更新」）；更新走 EdDSA 签名校验。
+- **中英双语** —— 界面跟随系统语言，也可在设置里切「中文 / English」。
 
 <p align="center">
   <img src="screenshots/detail-dark.png" width="300" alt="单币详情">
@@ -73,6 +74,7 @@ cd coinbar
 - [x] 菜单栏多币种、拖拽排序、迷你 K 线、单币详情
 - [x] GitHub 浅 / 深主题、开机自启动
 - [x] 自动更新（Sparkle，EdDSA 自签）
+- [x] 中英双语（i18n）
 - [ ] Developer ID 签名 + 公证（免去首次打开的 Gatekeeper 拦截）
 
 ## 许可

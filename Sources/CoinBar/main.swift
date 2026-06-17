@@ -3,6 +3,7 @@ import AppKit
 
 // 入口:支持 --render-popover <path> 截图模式(便于设计迭代),否则正常启动菜单栏应用。
 let args = CommandLine.arguments
+if let j = args.firstIndex(of: "--lang"), j + 1 < args.count { Localize.lang = args[j + 1] }   // 截图语言
 if let i = args.firstIndex(of: "--render-icon"), i + 1 < args.count {
     MainActor.assumeIsolated { Screenshot.renderIcon(to: args[i + 1]) }
 } else if let i = args.firstIndex(of: "--render-settings"), i + 1 < args.count {

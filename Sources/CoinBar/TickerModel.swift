@@ -18,6 +18,7 @@ final class TickerModel: ObservableObject {
     @Published var appearance: String             // auto | light | dark
     @Published var barStyle: String               // 菜单栏显示:price | change | both
     @Published var changeBasis: String            // 涨跌幅基准:24h | today
+    @Published var lang: String { didSet { Localize.lang = lang } }   // 语言:auto | zh | en
     @Published var launchAtLogin: Bool             // 开机自启动(SMAppService)
     var onCheckForUpdates: (() -> Void)?           // 由 AppDelegate 注入(Sparkle 检查更新)
 
@@ -38,8 +39,12 @@ final class TickerModel: ObservableObject {
         self.appearance = UserDefaults.standard.string(forKey: "appearance") ?? "auto"
         self.barStyle = UserDefaults.standard.string(forKey: "barStyle") ?? "price"
         self.changeBasis = UserDefaults.standard.string(forKey: "changeBasis") ?? "24h"
+        self.lang = UserDefaults.standard.string(forKey: "lang") ?? "auto"
         self.launchAtLogin = (SMAppService.mainApp.status == .enabled)
-        if autostart { start() }   // 启动即抓数据(不必等用户点开面板)
+        if autostart {
+            Localize.lang = self.lang   // 仅正常启动时同步;截图模式由 --lang 决定
+            start()                     // 启动即抓数据(不必等用户点开面板)
+        }
     }
 
     func start() {
@@ -74,6 +79,7 @@ final class TickerModel: ObservableObject {
         d.set(appearance, forKey: "appearance")
         d.set(barStyle, forKey: "barStyle")
         d.set(changeBasis, forKey: "changeBasis")
+        d.set(lang, forKey: "lang")
     }
 
     /// 开机自启动(macOS 13+ SMAppService);失败则回退到真实状态。

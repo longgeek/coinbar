@@ -160,7 +160,7 @@ enum Fmt {
         let f = DateFormatter(); f.dateFormat = "HH:mm"
         let mins = max(0, Int(date.timeIntervalSinceNow / 60))
         let h = mins / 60, m = mins % 60
-        let left = h > 0 ? "(剩 \(h)h\(m)m)" : "(剩 \(m)m)"
+        let left = h > 0 ? L("(剩 \(h)h\(m)m)", "(\(h)h\(m)m left)") : L("(剩 \(m)m)", "(\(m)m left)")
         return mins == 0 ? f.string(from: date) : "\(f.string(from: date)) \(left)"
     }
 }

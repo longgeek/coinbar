@@ -248,14 +248,14 @@ final class WatchCellView: NSTableCellView {
         // 未置顶用动态的 tertiaryLabelColor —— 自动按外观解析成浅/深灰;
         // 不能用 secondaryLabelColor.withAlphaComponent(),那会按当时外观定格成静态色,暗色下发黑。
         pinButton.contentTintColor = d.pinned ? c.accent : .tertiaryLabelColor
-        pinButton.toolTip = d.pinned ? "已固定到菜单栏" : "固定到菜单栏"
+        pinButton.toolTip = d.pinned ? L("已固定到菜单栏", "Pinned to menu bar") : L("固定到菜单栏", "Pin to menu bar")
         removeButton.image = Self.symbol("minus.circle.fill", size: 12)
         removeButton.contentTintColor = c.down.withAlphaComponent(0.75)
-        removeButton.toolTip = "移除自选"
+        removeButton.toolTip = L("移除自选", "Remove")
 
         baseLabel.stringValue = d.base
         symbolLabel.stringValue = d.sym
-        badge.set(text: d.isFut ? "合约" : "现货", tint: d.isFut ? c.accent : .secondaryLabelColor)
+        badge.set(text: d.isFut ? L("合约", "Perp") : L("现货", "Spot"), tint: d.isFut ? c.accent : .secondaryLabelColor)
 
         priceLabel.stringValue = d.priceText
         priceLabel.textColor = d.flashDir > 0 ? c.up : (d.flashDir < 0 ? c.down : .labelColor)

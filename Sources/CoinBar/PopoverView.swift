@@ -38,11 +38,11 @@ struct PopoverView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
             if preview {
-                Text("搜索币种,如 doge / pepe…")
+                Text(L("搜索币种,如 doge / pepe…", "Search coins, e.g. doge / pepe…"))
                     .font(Theme.rounded(14)).foregroundStyle(.tertiary)
                 Spacer()
             } else {
-                TextField("搜索币种,如 doge / pepe…", text: $model.query)
+                TextField(L("搜索币种,如 doge / pepe…", "Search coins, e.g. doge / pepe…"), text: $model.query)
                     .textFieldStyle(.plain)
                     .font(Theme.rounded(14))
                     .focused($searchFocused)
@@ -118,8 +118,8 @@ struct PopoverView: View {
     private var empty: some View {
         VStack(spacing: 6) {
             Image(systemName: "tray").font(.system(size: 22)).foregroundStyle(.tertiary)
-            Text("自选为空").font(Theme.rounded(13)).foregroundStyle(.secondary)
-            Text("上方搜索添加币种").font(.system(size: 11)).foregroundStyle(.tertiary)
+            Text(L("自选为空", "No coins yet")).font(Theme.rounded(13)).foregroundStyle(.secondary)
+            Text(L("上方搜索添加币种", "Search above to add")).font(.system(size: 11)).foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 40)
     }
@@ -136,13 +136,13 @@ struct PopoverView: View {
                 Task { await model.refresh() }
             } label: {
                 Image(systemName: "arrow.clockwise").rotationEffect(.degrees(refreshSpin))
-            }.buttonStyle(IconButtonStyle()).help("立即刷新")
+            }.buttonStyle(IconButtonStyle()).help(L("立即刷新", "Refresh"))
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape")
-            }.buttonStyle(IconButtonStyle()).help("设置")
+            }.buttonStyle(IconButtonStyle()).help(L("设置", "Settings"))
             Button { NSApp.terminate(nil) } label: {
                 Image(systemName: "power")
-            }.buttonStyle(IconButtonStyle()).help("退出 CoinBar")
+            }.buttonStyle(IconButtonStyle()).help(L("退出 CoinBar", "Quit CoinBar"))
         }
         .font(.system(size: 12))
         .foregroundStyle(.secondary)
@@ -151,9 +151,10 @@ struct PopoverView: View {
     }
 
     private var updatedText: String {
-        guard let d = model.lastUpdated else { return "连接中…" }
+        guard let d = model.lastUpdated else { return L("连接中…", "Connecting…") }
         let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
-        return "更新于 \(f.string(from: d))"
+        let t = f.string(from: d)
+        return L("更新于 \(t)", "Updated \(t)")
     }
 }
 
@@ -177,18 +178,18 @@ struct WatchRow: View {
                 Image(systemName: pinned ? "pin.fill" : "pin")
                     .font(.system(size: 12))
                     .foregroundStyle(pinned ? skin.accent : Color.secondary.opacity(0.45))
-            }.buttonStyle(.plain).help(pinned ? "已固定到菜单栏" : "固定到菜单栏")
+            }.buttonStyle(.plain).help(pinned ? L("已固定到菜单栏", "Pinned to menu bar") : L("固定到菜单栏", "Pin to menu bar"))
             Button { model.toggleWatch(sym) } label: {
                 Image(systemName: "minus.circle.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(skin.down.opacity(0.7))
-            }.buttonStyle(.plain).help("移除自选")
+            }.buttonStyle(.plain).help(L("移除自选", "Remove"))
 
             // 符号 + 现货/合约标记(标记放第二行,不占主行宽度,给 K 线让地方)
             VStack(alignment: .leading, spacing: 2) {
                 Text(t?.base ?? sym).font(Theme.rounded(14, weight: .semibold))
                 HStack(spacing: 4) {
-                    Text(isFut ? "合约" : "现货")
+                    Text(isFut ? L("合约", "Perp") : L("现货", "Spot"))
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(isFut ? skin.accent : Color.secondary)
                         .padding(.horizontal, 4).padding(.vertical, 1)
