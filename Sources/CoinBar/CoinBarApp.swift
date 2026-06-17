@@ -42,21 +42,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     // MARK: 菜单栏彩色标签(非模板 NSImage,保留绿/红)
     @MainActor private func updateLabel() {
         guard let button = statusItem?.button else { return }
-        let img = Self.barImage(model: model)
-        img.isTemplate = false
-        button.image = img
+        button.image = Self.barImage(model: model)   // isTemplate 由 barImage 按 barMono 决定
     }
 
     @MainActor private static func barImage(model: TickerModel) -> NSImage {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
-        let green = NSColor(srgbRed: 0.09, green: 0.78, blue: 0.52, alpha: 1)
-        let red = NSColor(srgbRed: 0.92, green: 0.22, blue: 0.26, alpha: 1)
-        let upC = model.redUp ? red : green, downC = model.redUp ? green : red
+        let mono = model.barMono
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        let green = NSColor(srgbRed: 0.13, green: 0.85, blue: 0.55, alpha: 1)
+        let red = NSColor(srgbRed: 1.0, green: 0.34, blue: 0.35, alpha: 1)
+        let upC: NSColor = mono ? .labelColor : (model.redUp ? red : green)
+        let downC: NSColor = mono ? .labelColor : (model.redUp ? green : red)
         let attr = NSMutableAttributedString()
         let segs = model.barSegments()
         if segs.isEmpty {
             attr.append(NSAttributedString(string: "CoinBar",
-                attributes: [.font: font, .foregroundColor: NSColor(white: 0.65, alpha: 1)]))
+                attributes: [.font: font, .foregroundColor: mono ? NSColor.labelColor : NSColor(white: 0.65, alpha: 1)]))
         } else {
             for (i, seg) in segs.enumerated() {
                 if i > 0 { attr.append(NSAttributedString(string: "   ", attributes: [.font: font])) }
@@ -75,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         img.lockFocus()
         attr.draw(at: NSPoint(x: 1, y: 1))
         img.unlockFocus()
+        img.isTemplate = mono   // 单色 → 模板渲染(系统着色,失焦/外接屏 dim 更自然)
         return img
     }
 

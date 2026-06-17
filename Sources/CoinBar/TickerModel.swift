@@ -25,6 +25,7 @@ final class TickerModel: ObservableObject {
     @Published var redUp: Bool                    // true=红涨绿跌(A股) / false=绿涨红跌
     @Published var appearance: String             // auto | light | dark
     @Published var barStyle: String               // 菜单栏显示:price | change | both
+    @Published var barMono: Bool                  // 菜单栏单色(模板渲染,失焦/外接屏 dim 更自然)
     @Published var changeBasis: String            // 涨跌幅基准:24h | today
     @Published var lang: String { didSet { Localize.lang = lang } }   // 语言:auto | zh | en
     @Published var launchAtLogin: Bool             // 开机自启动(SMAppService)
@@ -50,6 +51,7 @@ final class TickerModel: ObservableObject {
         self.redUp = UserDefaults.standard.bool(forKey: "redUp")
         self.appearance = UserDefaults.standard.string(forKey: "appearance") ?? "auto"
         self.barStyle = UserDefaults.standard.string(forKey: "barStyle") ?? "price"
+        self.barMono = UserDefaults.standard.bool(forKey: "barMono")
         self.changeBasis = UserDefaults.standard.string(forKey: "changeBasis") ?? "24h"
         self.lang = UserDefaults.standard.string(forKey: "lang") ?? "auto"
         self.launchAtLogin = (SMAppService.mainApp.status == .enabled)
@@ -92,6 +94,7 @@ final class TickerModel: ObservableObject {
         d.set(redUp, forKey: "redUp")
         d.set(appearance, forKey: "appearance")
         d.set(barStyle, forKey: "barStyle")
+        d.set(barMono, forKey: "barMono")
         d.set(changeBasis, forKey: "changeBasis")
         d.set(lang, forKey: "lang")
     }

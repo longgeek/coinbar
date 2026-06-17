@@ -18,6 +18,7 @@ struct SettingsView: View {
                 row(L("涨跌幅基准", "Change basis")) { changeBasisControl }
                 row(L("外观", "Appearance")) { appearanceControl }
                 row(L("菜单栏显示", "Menu bar")) { barStyleControl }
+                settingRow(L("菜单栏单色", "Mono menu bar")) { monoControl }
                 row(L("语言", "Language")) { langControl }
                 settingRow(L("开机自启动", "Launch at login")) { launchControl }
                 settingRow(L("软件更新", "Updates")) {
@@ -37,6 +38,7 @@ struct SettingsView: View {
         .onChange(of: model.barStyle) { _ in model.saveSettings() }
         .onChange(of: model.changeBasis) { _ in model.saveSettings(); Task { await model.refreshDayOpens() } }
         .onChange(of: model.lang) { _ in model.saveSettings() }
+        .onChange(of: model.barMono) { _ in model.saveSettings() }
     }
 
     private var header: some View {
@@ -124,6 +126,15 @@ struct SettingsView: View {
         } else {
             Toggle("", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 .labelsHidden().toggleStyle(.switch)
+        }
+    }
+    @ViewBuilder private var monoControl: some View {
+        if preview {
+            let on = model.barMono
+            Capsule().fill(on ? skin.accent : Color.gray.opacity(0.4)).frame(width: 36, height: 22)
+                .overlay(Circle().fill(.white).padding(2.5), alignment: on ? .trailing : .leading)
+        } else {
+            Toggle("", isOn: $model.barMono).labelsHidden().toggleStyle(.switch)
         }
     }
 
