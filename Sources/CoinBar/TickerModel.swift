@@ -17,6 +17,7 @@ final class TickerModel: ObservableObject {
     @Published var redUp: Bool                    // true=红涨绿跌(A股) / false=绿涨红跌
     @Published var appearance: String             // auto | light | dark
     @Published var launchAtLogin: Bool             // 开机自启动(SMAppService)
+    var onCheckForUpdates: (() -> Void)?           // 由 AppDelegate 注入(Sparkle 检查更新)
 
     private var prevPrice: [String: Double] = [:] // 变价闪烁基线
     @Published var flash: [String: Int] = [:]     // +1/-1/0

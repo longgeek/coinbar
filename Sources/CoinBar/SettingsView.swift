@@ -21,6 +21,13 @@ struct SettingsView: View {
                     Spacer()
                     launchControl
                 }
+                HStack {
+                    Text("软件更新").font(Theme.rounded(13, weight: .medium)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("检查更新") { model.onCheckForUpdates?() }
+                        .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(skin.accent)
+                }
             }
             .padding(14)
             .tint(skin.accent)   // 分段控件/开关选中色与外部按钮统一

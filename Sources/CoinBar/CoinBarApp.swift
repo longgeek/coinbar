@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import Sparkle
 
 /// 自管理的菜单栏应用外壳:NSStatusItem(彩色标签) + 自定义可成为 key 的 NSPanel。
 ///
@@ -15,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var hosting: NSHostingView<RootContent>?
     private var labelObserver: AnyCancellable?
     private var lastClose: Date?
+    private lazy var updaterController = SPUStandardUpdaterController(
+        startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -25,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         labelObserver = model.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] in MainActor.assumeIsolated { self?.updateLabel() } }
+        _ = updaterController   // 启动 Sparkle 自动更新检查
+        model.onCheckForUpdates = { [weak self] in self?.updaterController.checkForUpdates(nil) }
     }
 
     // MARK: 菜单栏彩色标签(非模板 NSImage,保留绿/红)

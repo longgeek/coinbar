@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP="CoinBar"
-VERSION="0.1.0"
+VERSION="0.1.1"
 BUNDLE_ID="com.longgeek.coinbar"
 
 echo "==> swift build (release)"
@@ -15,6 +15,13 @@ OUT="build/$APP.app"
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$BIN" "$OUT/Contents/MacOS/$APP"
+
+# 嵌入 Sparkle.framework(放在图标渲染之前:渲染时二进制需能加载到 Sparkle)
+echo "==> 嵌入 Sparkle.framework"
+SPARKLE_FW="$(find .build/artifacts -path '*Sparkle.xcframework/macos-arm64*/Sparkle.framework' -type d | head -1)"
+mkdir -p "$OUT/Contents/Frameworks"
+cp -R "$SPARKLE_FW" "$OUT/Contents/Frameworks/Sparkle.framework"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$OUT/Contents/MacOS/$APP" 2>/dev/null || true
 
 # 从 IconView(代码即唯一来源)渲染 1024 主图,再生成多尺寸 .icns
 echo "==> 生成 app 图标"
@@ -47,11 +54,16 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>MIT License</string>
+  <key>SUFeedURL</key><string>https://raw.githubusercontent.com/longgeek/coinbar/main/appcast.xml</string>
+  <key>SUPublicEDKey</key><string>mKu4XA/+8v0bafx8MWcMS9j9Df3t4AjoJ31KQ3reIS0=</string>
+  <key>SUEnableAutomaticChecks</key><true/>
+  <key>SUScheduledCheckInterval</key><integer>86400</integer>
 </dict>
 </plist>
 PLIST
 
-# 临时 ad-hoc 签名,便于本机直接运行(分发版后续可换正式签名/公证)。
+# 临时 ad-hoc 签名(先签 Sparkle.framework,再签整个 app;分发版后续换正式签名/公证)。
+codesign --force --deep --sign - "$OUT/Contents/Frameworks/Sparkle.framework" 2>/dev/null || true
 codesign --force --deep --sign - "$OUT" 2>/dev/null || true
 
 echo "==> Built $OUT"
