@@ -16,6 +16,7 @@ final class TickerModel: ObservableObject {
     @Published var refreshSec: Int                // 刷新间隔(秒)
     @Published var redUp: Bool                    // true=红涨绿跌(A股) / false=绿涨红跌
     @Published var appearance: String             // auto | light | dark
+    @Published var barStyle: String               // 菜单栏显示:price | change | both
     @Published var launchAtLogin: Bool             // 开机自启动(SMAppService)
     var onCheckForUpdates: (() -> Void)?           // 由 AppDelegate 注入(Sparkle 检查更新)
 
@@ -33,6 +34,7 @@ final class TickerModel: ObservableObject {
         self.refreshSec = UserDefaults.standard.object(forKey: "refreshSec") as? Int ?? 3
         self.redUp = UserDefaults.standard.bool(forKey: "redUp")
         self.appearance = UserDefaults.standard.string(forKey: "appearance") ?? "auto"
+        self.barStyle = UserDefaults.standard.string(forKey: "barStyle") ?? "price"
         self.launchAtLogin = (SMAppService.mainApp.status == .enabled)
         if autostart { start() }   // 启动即抓数据(不必等用户点开面板)
     }
@@ -65,6 +67,7 @@ final class TickerModel: ObservableObject {
         d.set(refreshSec, forKey: "refreshSec")
         d.set(redUp, forKey: "redUp")
         d.set(appearance, forKey: "appearance")
+        d.set(barStyle, forKey: "barStyle")
     }
 
     /// 开机自启动(macOS 13+ SMAppService);失败则回退到真实状态。
@@ -118,11 +121,11 @@ final class TickerModel: ObservableObject {
 
     // 菜单栏文案
     /// 菜单栏要显示的若干币:(基础符号, 价格文本, 方向 +1/-1)。空=显示首个自选。
-    func barSegments() -> [(base: String, price: String, dir: Int)] {
+    func barSegments() -> [(base: String, price: String, pct: String, dir: Int)] {
         let coins = barCoins.isEmpty ? Array(watchlist.prefix(1)) : barCoins
         return coins.compactMap { sym in
             guard let t = tickers[sym] else { return nil }
-            return (t.base, Fmt.price(t.lastPrice), t.changePct >= 0 ? 1 : -1)
+            return (t.base, Fmt.price(t.lastPrice), Fmt.pct(t.changePct), t.changePct >= 0 ? 1 : -1)
         }
     }
 

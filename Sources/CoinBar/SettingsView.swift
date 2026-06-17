@@ -16,6 +16,7 @@ struct SettingsView: View {
                 row("刷新间隔") { refreshControl }
                 row("涨跌颜色") { colorControl }
                 row("外观") { appearanceControl }
+                row("菜单栏显示") { barStyleControl }
                 HStack {
                     Text("开机自启动").font(Theme.rounded(13, weight: .medium)).foregroundStyle(.secondary)
                     Spacer()
@@ -37,6 +38,7 @@ struct SettingsView: View {
         .onChange(of: model.refreshSec) { _ in model.restartTimer(); model.saveSettings() }
         .onChange(of: model.redUp) { _ in model.saveSettings() }
         .onChange(of: model.appearance) { _ in model.saveSettings() }
+        .onChange(of: model.barStyle) { _ in model.saveSettings() }
     }
 
     private var header: some View {
@@ -84,6 +86,15 @@ struct SettingsView: View {
         } else {
             Picker("", selection: $model.appearance) {
                 Text("跟随系统").tag("auto"); Text("浅色").tag("light"); Text("深色").tag("dark")
+            }.pickerStyle(.segmented).labelsHidden()
+        }
+    }
+    @ViewBuilder private var barStyleControl: some View {
+        if preview {
+            segment(["价格", "涨跌幅", "两者"], selected: ["price", "change", "both"].firstIndex(of: model.barStyle) ?? 0)
+        } else {
+            Picker("", selection: $model.barStyle) {
+                Text("价格").tag("price"); Text("涨跌幅").tag("change"); Text("两者").tag("both")
             }.pickerStyle(.segmented).labelsHidden()
         }
     }

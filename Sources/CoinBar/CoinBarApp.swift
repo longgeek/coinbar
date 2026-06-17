@@ -53,8 +53,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             for (i, seg) in segs.enumerated() {
                 if i > 0 { attr.append(NSAttributedString(string: "   ", attributes: [.font: font])) }
-                let arrow = seg.dir >= 0 ? "▲" : "▼"
-                attr.append(NSAttributedString(string: "\(seg.base) \(seg.price)\(arrow)",
+                let text: String
+                switch model.barStyle {
+                case "change": text = "\(seg.base) \(seg.pct)"               // 涨跌幅(带 +/- 号)
+                case "both":   text = "\(seg.base) \(seg.price) \(seg.pct)"   // 价格 + 涨跌幅
+                default:       text = "\(seg.base) \(seg.price)\(seg.dir >= 0 ? "▲" : "▼")"  // 价格 + 箭头
+                }
+                attr.append(NSAttributedString(string: text,
                     attributes: [.font: font, .foregroundColor: seg.dir >= 0 ? upC : downC]))
             }
         }
