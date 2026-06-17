@@ -51,8 +51,9 @@ struct SettingsView: View {
     }
 
     private var footer: some View {
-        HStack {
-            Text("CoinBar v0.1 by Longgeek").font(.system(size: 11)).foregroundStyle(.tertiary)
+        let ver = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1"
+        return HStack {
+            Text("CoinBar v\(ver) by Longgeek").font(.system(size: 11)).foregroundStyle(.tertiary)
             Spacer()
             Text(L("数据来自 Binance", "Data from Binance")).font(.system(size: 11)).foregroundStyle(.tertiary)
         }
