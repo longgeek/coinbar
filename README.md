@@ -75,7 +75,7 @@ cd coinbar
 - [x] GitHub 浅 / 深主题、开机自启动
 - [x] 自动更新（Sparkle，EdDSA 自签）
 - [x] 中英双语（i18n）
-- [ ] Developer ID 签名 + 公证（免去首次打开的 Gatekeeper 拦截）
+- [x] WebSocket 实时行情、价格提醒、菜单栏可选显示
 
 ## 许可
 
