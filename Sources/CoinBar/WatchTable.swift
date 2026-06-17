@@ -62,7 +62,7 @@ struct WatchTable: NSViewRepresentable {
                            hasTicker: t != nil,
                            priceText: t.map { Fmt.price($0.lastPrice) } ?? "—",
                            priceRaw: t?.lastPrice ?? 0,
-                           pct: t?.changePct ?? 0,
+                           pct: model.displayChange(sym),
                            flashDir: model.flash[sym] ?? 0,
                            spark: model.spark[sym] ?? [])
         }

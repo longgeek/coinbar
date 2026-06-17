@@ -19,11 +19,12 @@ struct DetailView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 if let t {
+                    let chg = model.displayChange(sym)
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(Fmt.price(t.lastPrice))
                             .font(Theme.mono(26, weight: .semibold))
-                            .foregroundStyle(skin.change(t.changePct))
-                        ChangePill(pct: t.changePct)
+                            .foregroundStyle(skin.change(chg))
+                        ChangePill(pct: chg)
                         Spacer()
                     }
                 }

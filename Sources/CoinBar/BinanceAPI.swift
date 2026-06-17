@@ -70,6 +70,18 @@ enum BinanceAPI {
         return raw.compactMap { Double(($0.count > 4 ? $0[4] : nil) as? String ?? "") }   // index 4 = close
     }
 
+    /// 今日开盘价(UTC 00:00):取 1 根日线的开盘价(index 1)。现货失败回退合约。
+    static func fetchDailyOpen(_ symbol: String) async -> Double? {
+        func open(_ base: String) async -> Double? {
+            guard let url = URL(string: "\(base)?symbol=\(symbol)&interval=1d&limit=1"),
+                  let raw = (try? await getJSON(url)) as? [[Any]],
+                  let first = raw.first, first.count > 1 else { return nil }
+            return Double((first[1] as? String) ?? "")
+        }
+        if let o = await open("\(spotBase)/api/v3/klines") { return o }
+        return await open("\(fapiBase)/fapi/v1/klines")
+    }
+
     /// 合约资金费率/标记价(premiumIndex)。
     static func fetchFunding(_ symbol: String) async -> Funding? {
         guard let url = URL(string: "\(fapiBase)/fapi/v1/premiumIndex?symbol=\(symbol)"),

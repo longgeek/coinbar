@@ -17,12 +17,14 @@ final class TickerModel: ObservableObject {
     @Published var redUp: Bool                    // true=红涨绿跌(A股) / false=绿涨红跌
     @Published var appearance: String             // auto | light | dark
     @Published var barStyle: String               // 菜单栏显示:price | change | both
+    @Published var changeBasis: String            // 涨跌幅基准:24h | today
     @Published var launchAtLogin: Bool             // 开机自启动(SMAppService)
     var onCheckForUpdates: (() -> Void)?           // 由 AppDelegate 注入(Sparkle 检查更新)
 
     private var prevPrice: [String: Double] = [:] // 变价闪烁基线
     @Published var flash: [String: Int] = [:]     // +1/-1/0
     @Published var spark: [String: [Double]] = [:] // 迷你 K 线收盘价序列(近 24h)
+    @Published var dayOpen: [String: Double] = [:]  // 今日(UTC 00:00)开盘价,用于「今日」涨跌
     @Published var funding: [String: Funding] = [:] // 合约资金费率/标记价(详情页)
     @Published var futuresSyms: Set<String> = []    // 以合约数据展示的币
     private var timer: Timer?
@@ -35,6 +37,7 @@ final class TickerModel: ObservableObject {
         self.redUp = UserDefaults.standard.bool(forKey: "redUp")
         self.appearance = UserDefaults.standard.string(forKey: "appearance") ?? "auto"
         self.barStyle = UserDefaults.standard.string(forKey: "barStyle") ?? "price"
+        self.changeBasis = UserDefaults.standard.string(forKey: "changeBasis") ?? "24h"
         self.launchAtLogin = (SMAppService.mainApp.status == .enabled)
         if autostart { start() }   // 启动即抓数据(不必等用户点开面板)
     }
@@ -43,9 +46,11 @@ final class TickerModel: ObservableObject {
         Task { await refresh() }
         Task { allSymbols = await BinanceAPI.fetchAllSymbols() }
         Task { await refreshSparks() }
+        Task { await refreshDayOpens() }
         restartTimer()
         sparkTimer = Timer.scheduledTimer(withTimeInterval: 90, repeats: true) { [weak self] _ in
             Task { await self?.refreshSparks() }
+            Task { await self?.refreshDayOpens() }
         }
     }
 
@@ -68,6 +73,7 @@ final class TickerModel: ObservableObject {
         d.set(redUp, forKey: "redUp")
         d.set(appearance, forKey: "appearance")
         d.set(barStyle, forKey: "barStyle")
+        d.set(changeBasis, forKey: "changeBasis")
     }
 
     /// 开机自启动(macOS 13+ SMAppService);失败则回退到真实状态。
@@ -85,6 +91,23 @@ final class TickerModel: ObservableObject {
             let c = await BinanceAPI.fetchKlines(sym)
             if !c.isEmpty { spark[sym] = c }
         }
+    }
+
+    /// 「今日」涨跌所需的日线开盘价(仅在该口径下抓)。
+    func refreshDayOpens() async {
+        guard changeBasis == "today" else { return }
+        for sym in watchlist {
+            if let o = await BinanceAPI.fetchDailyOpen(sym) { dayOpen[sym] = o }
+        }
+    }
+
+    /// 按当前口径算涨跌幅(%):24h 用 Binance 滚动值;今日用 (现价-今开)/今开。
+    func displayChange(_ sym: String) -> Double {
+        guard let t = tickers[sym] else { return 0 }
+        if changeBasis == "today", let o = dayOpen[sym], o > 0 {
+            return (t.lastPrice - o) / o * 100
+        }
+        return t.changePct
     }
 
     /// 加载某合约币的资金费率/标记价(详情页打开时调用)。
@@ -126,7 +149,8 @@ final class TickerModel: ObservableObject {
         let coins = barCoins.isEmpty ? Array(watchlist.prefix(1)) : watchlist.filter { barCoins.contains($0) }
         return coins.compactMap { sym in
             guard let t = tickers[sym] else { return nil }
-            return (t.base, Fmt.price(t.lastPrice), Fmt.pct(t.changePct), t.changePct >= 0 ? 1 : -1)
+            let chg = displayChange(sym)
+            return (t.base, Fmt.price(t.lastPrice), Fmt.pct(chg), chg >= 0 ? 1 : -1)
         }
     }
 
@@ -154,6 +178,7 @@ final class TickerModel: ObservableObject {
             watchlist.append(sym)
             Task { await refresh() }
             Task { let c = await BinanceAPI.fetchKlines(sym); if !c.isEmpty { spark[sym] = c } }
+            Task { if let o = await BinanceAPI.fetchDailyOpen(sym) { dayOpen[sym] = o } }
         }
         persist()
     }

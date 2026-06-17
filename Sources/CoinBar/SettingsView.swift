@@ -15,6 +15,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 18) {
                 row("刷新间隔") { refreshControl }
                 row("涨跌颜色") { colorControl }
+                row("涨跌幅基准") { changeBasisControl }
                 row("外观") { appearanceControl }
                 row("菜单栏显示") { barStyleControl }
                 HStack {
@@ -39,6 +40,7 @@ struct SettingsView: View {
         .onChange(of: model.redUp) { _ in model.saveSettings() }
         .onChange(of: model.appearance) { _ in model.saveSettings() }
         .onChange(of: model.barStyle) { _ in model.saveSettings() }
+        .onChange(of: model.changeBasis) { _ in model.saveSettings(); Task { await model.refreshDayOpens() } }
     }
 
     private var header: some View {
@@ -86,6 +88,15 @@ struct SettingsView: View {
         } else {
             Picker("", selection: $model.appearance) {
                 Text("跟随系统").tag("auto"); Text("浅色").tag("light"); Text("深色").tag("dark")
+            }.pickerStyle(.segmented).labelsHidden()
+        }
+    }
+    @ViewBuilder private var changeBasisControl: some View {
+        if preview {
+            segment(["24h", "今日"], selected: model.changeBasis == "today" ? 1 : 0)
+        } else {
+            Picker("", selection: $model.changeBasis) {
+                Text("24h").tag("24h"); Text("今日").tag("today")
             }.pickerStyle(.segmented).labelsHidden()
         }
     }
