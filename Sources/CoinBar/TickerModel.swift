@@ -122,7 +122,8 @@ final class TickerModel: ObservableObject {
     // 菜单栏文案
     /// 菜单栏要显示的若干币:(基础符号, 价格文本, 方向 +1/-1)。空=显示首个自选。
     func barSegments() -> [(base: String, price: String, pct: String, dir: Int)] {
-        let coins = barCoins.isEmpty ? Array(watchlist.prefix(1)) : barCoins
+        // 钉住的币按「自选列表顺序」展示 → 拖动列表排序会同步到菜单栏。
+        let coins = barCoins.isEmpty ? Array(watchlist.prefix(1)) : watchlist.filter { barCoins.contains($0) }
         return coins.compactMap { sym in
             guard let t = tickers[sym] else { return nil }
             return (t.base, Fmt.price(t.lastPrice), Fmt.pct(t.changePct), t.changePct >= 0 ? 1 : -1)
