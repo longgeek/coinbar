@@ -13,12 +13,13 @@ struct PriceAlert: Codable, Equatable, Identifiable {
 /// 应用状态:自选、行情、搜索、菜单栏文案。
 @MainActor
 final class TickerModel: ObservableObject {
-    @Published var watchlist: [String]   // 自选交易对(全大写,e.g. BTCUSDT)
-    @Published var tickers: [String: Ticker] = [:]
-    @Published var query: String = ""
-    @Published var allSymbols: [String] = []     // 搜索用的全量符号
+    @Published var watchlist: [String]   // 自选实例 id(现货=裸符号 BTCUSDT;合约=BTCUSDT.P)
+    @Published var tickers: [String: Ticker] = [:]   // 按 id 存
+    @Published var query: String = "" { didSet { scheduleSearchFetch() } }
+    @Published var allSymbols: [String] = [] { didSet { migrateWatchlistMarkets(); if !query.isEmpty { scheduleSearchFetch() } } }   // 搜索用全量实例 id(晚到时补迁移 + 补拉价)
+    @Published var searchTickers: [String: Ticker] = [:]   // 搜索结果行情(按 id 存,按需拉取)
     @Published var lastUpdated: Date?
-    @Published var barCoins: [String]             // 菜单栏显示的币(可多个;空=显示首个自选)
+    @Published var barCoins: [String]             // 菜单栏显示的币 id(可多个;空=显示首个自选)
 
     // 设置项(设置面板里可调)
     @Published var refreshSec: Int                // 刷新间隔(秒)
@@ -36,11 +37,12 @@ final class TickerModel: ObservableObject {
     @Published var spark: [String: [Double]] = [:] // 迷你 K 线收盘价序列(近 24h)
     @Published var dayOpen: [String: Double] = [:]  // 今日(UTC 00:00)开盘价,用于「今日」涨跌
     @Published var funding: [String: Funding] = [:] // 合约资金费率/标记价(详情页)
-    @Published var futuresSyms: Set<String> = []    // 以合约数据展示的币
     @Published var alerts: [PriceAlert] = []         // 价格提醒(到价系统通知)
     private var timer: Timer?
     private var sparkTimer: Timer?
-    private var stream: PriceStream?
+    private var spotStream: PriceStream?            // 现货实时推送
+    private var futStream: PriceStream?             // 合约实时推送
+    private var searchTask: Task<Void, Never>?   // 搜索行情拉取(防抖 + 可取消)
 
     init(watchlist: [String] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: Bool = true) {
         self.watchlist = UserDefaults.standard.stringArray(forKey: "watchlist") ?? watchlist
@@ -62,17 +64,57 @@ final class TickerModel: ObservableObject {
     }
 
     func start() {
-        Task { await refresh() }
-        Task { allSymbols = await BinanceAPI.fetchAllSymbols() }
+        // 现货 + 合约两条 WebSocket(REST 仍跑作兜底;市场由各自的流注入)。
+        spotStream = PriceStream(wsBase: BinanceAPI.spotWS) { [weak self] t in self?.ingest(t, market: .spot) }
+        futStream = PriceStream(wsBase: BinanceAPI.futWS) { [weak self] t in self?.ingest(t, market: .perp) }
+        updateStreams()                  // 先按现有自选订阅
+        Task { await refresh() }         // 自选价格立即拉,不等 allSymbols
         Task { await refreshSparks() }
         Task { await refreshDayOpens() }
+        Task {                           // 全量符号(搜索 + 历史自选迁移);失败则退避重试,别让自选里的纯合约币整局无价
+            var syms = await BinanceAPI.fetchAllSymbols()
+            while syms.isEmpty {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                syms = await BinanceAPI.fetchAllSymbols()
+            }
+            let before = watchlist
+            allSymbols = syms            // didSet → migrateWatchlistMarkets()
+            if watchlist != before {     // 迁移改了自选(含纯合约币)→ 重订阅 + 重拉
+                updateStreams()
+                await refresh()
+                await refreshSparks()
+                await refreshDayOpens()
+            }
+        }
         restartTimer()
         sparkTimer = Timer.scheduledTimer(withTimeInterval: 90, repeats: true) { [weak self] _ in
             Task { await self?.refreshSparks() }
             Task { await self?.refreshDayOpens() }
         }
-        stream = PriceStream { [weak self] t in self?.ingest(t) }   // WebSocket 实时推送(REST 仍跑作兜底)
-        stream?.update(symbols: watchlist)
+    }
+
+    /// 按市场把自选拆给两条流订阅(传纯符号)。
+    private func updateStreams() {
+        spotStream?.update(symbols: watchlist.filter { !Inst.isPerp($0) }.map { Inst.apiSymbol($0) })
+        futStream?.update(symbols: watchlist.filter { Inst.isPerp($0) }.map { Inst.apiSymbol($0) })
+    }
+
+    /// 历史自选里若有纯合约币(老版按裸符号存),按 allSymbols 把它迁移成 .P id,使其继续按合约取价/标记。
+    private func migrateWatchlistMarkets() {
+        guard !allSymbols.isEmpty else { return }
+        let spotSet = Set(allSymbols.lazy.filter { !Inst.isPerp($0) })
+        let perpSet = Set(allSymbols.lazy.filter { Inst.isPerp($0) })
+        func fix(_ id: String) -> String {
+            guard !Inst.isPerp(id), !spotSet.contains(id), perpSet.contains(Inst.perpID(id)) else { return id }
+            return Inst.perpID(id)
+        }
+        let newWatch = watchlist.map(fix), newBar = barCoins.map(fix)
+        let newAlerts = alerts.map { a -> PriceAlert in
+            let nid = fix(a.sym); return nid == a.sym ? a : PriceAlert(sym: nid, price: a.price, above: a.above)
+        }
+        guard newWatch != watchlist || newBar != barCoins || newAlerts != alerts else { return }
+        watchlist = newWatch; barCoins = newBar; alerts = newAlerts
+        persist(); persistAlerts()
     }
 
     /// 按当前 refreshSec 重建价格定时器(改间隔时调用)。
@@ -111,7 +153,7 @@ final class TickerModel: ObservableObject {
 
     func refreshSparks() async {
         for sym in watchlist {
-            let c = await BinanceAPI.fetchKlines(sym)
+            let c = await BinanceAPI.fetchKlines(Inst.apiSymbol(sym), market: Inst.market(sym))
             if !c.isEmpty { spark[sym] = c }
         }
     }
@@ -120,7 +162,7 @@ final class TickerModel: ObservableObject {
     func refreshDayOpens() async {
         guard changeBasis == "today" else { return }
         for sym in watchlist {
-            if let o = await BinanceAPI.fetchDailyOpen(sym) { dayOpen[sym] = o }
+            if let o = await BinanceAPI.fetchDailyOpen(Inst.apiSymbol(sym), market: Inst.market(sym)) { dayOpen[sym] = o }
         }
     }
 
@@ -135,72 +177,104 @@ final class TickerModel: ObservableObject {
 
     /// 加载某合约币的资金费率/标记价(详情页打开时调用)。
     func loadFunding(_ sym: String) async {
-        if let f = await BinanceAPI.fetchFunding(sym) { funding[sym] = f }
+        if let f = await BinanceAPI.fetchFunding(Inst.apiSymbol(sym)) { funding[sym] = f }
     }
 
     func refresh() async {
-        let syms = watchlist
-        guard !syms.isEmpty else { tickers = [:]; return }
+        let ids = watchlist
+        guard !ids.isEmpty else { tickers = [:]; return }
         var map = tickers                                  // 保留上次,避免瞬时缺失闪烁
-        let spot = await BinanceAPI.fetchSpot(syms)
-        for t in spot { map[t.symbol] = t }
-        // 现货拿不到的(纯合约币)→ 走合约接口
-        let spotSet = Set(spot.map { $0.symbol })
-        let missing = syms.filter { !spotSet.contains($0) }
-        if !missing.isEmpty {
-            let fut = await BinanceAPI.fetchFutures(missing)
-            for t in fut { map[t.symbol] = t }
-            futuresSyms = Set(fut.map { $0.symbol })   // 这些币以合约数据展示
-        } else {
-            futuresSyms = []
+        let spotIDs = ids.filter { !Inst.isPerp($0) }
+        let perpIDs = ids.filter { Inst.isPerp($0) }
+        if !spotIDs.isEmpty {
+            let spot = await BinanceAPI.fetchSpot(spotIDs.map { Inst.apiSymbol($0) })
+            for t in spot { map[t.symbol] = t }            // 现货 id == 纯符号
         }
-        for sym in syms {                                  // 变价方向(脉冲/闪烁)
+        if !perpIDs.isEmpty {
+            let fut = await BinanceAPI.fetchFutures(perpIDs.map { Inst.apiSymbol($0) })
+            for t in fut { map[Inst.perpID(t.symbol)] = t } // 合约回存到 .P id
+        }
+        for sym in ids {                                   // 变价方向(脉冲/闪烁)
             if let t = map[sym] {
                 let dir = prevPrice[sym].map { t.lastPrice > $0 ? 1 : (t.lastPrice < $0 ? -1 : 0) } ?? 0
                 flash[sym] = dir
                 prevPrice[sym] = t.lastPrice
             }
         }
-        tickers = map.filter { syms.contains($0.key) }     // 清理已移除的
+        tickers = map.filter { ids.contains($0.key) }      // 清理已移除的
         checkAlerts()
         lastUpdated = Date()
     }
 
-    /// 单条行情入库(WebSocket 推送与 REST 共用):更新价格、变价方向、检查提醒。
-    func ingest(_ t: Ticker) {
-        guard watchlist.contains(t.symbol) else { return }
-        let dir = prevPrice[t.symbol].map { t.lastPrice > $0 ? 1 : (t.lastPrice < $0 ? -1 : 0) } ?? 0
-        flash[t.symbol] = dir
-        prevPrice[t.symbol] = t.lastPrice
-        tickers[t.symbol] = t
+    /// 单条行情入库(WebSocket 推送与 REST 共用):按所属市场算出 id,更新价格、变价方向、检查提醒。
+    func ingest(_ t: Ticker, market: Market) {
+        let id = Inst.id(t.symbol, market)
+        guard watchlist.contains(id) else { return }
+        let dir = prevPrice[id].map { t.lastPrice > $0 ? 1 : (t.lastPrice < $0 ? -1 : 0) } ?? 0
+        flash[id] = dir
+        prevPrice[id] = t.lastPrice
+        tickers[id] = t
         checkAlerts()
         lastUpdated = Date()
     }
 
     // 菜单栏文案
     /// 菜单栏要显示的若干币:(基础符号, 价格文本, 方向 +1/-1)。空=显示首个自选。
-    func barSegments() -> [(base: String, price: String, pct: String, dir: Int)] {
+    func barSegments() -> [(base: String, price: String, pct: String, dir: Int, isPerp: Bool)] {
         // 钉住的币按「自选列表顺序」展示 → 拖动列表排序会同步到菜单栏。
         let coins = barCoins.isEmpty ? Array(watchlist.prefix(1)) : watchlist.filter { barCoins.contains($0) }
         return coins.compactMap { sym in
             guard let t = tickers[sym] else { return nil }
             let chg = displayChange(sym)
-            return (t.base, Fmt.price(t.lastPrice), Fmt.pct(chg), chg >= 0 ? 1 : -1)
+            return (t.base, Fmt.price(t.lastPrice), Fmt.pct(chg), chg >= 0 ? 1 : -1, Inst.isPerp(sym))
         }
     }
 
-    // 当前应展示的列表(空搜索=自选;有搜索=过滤全量符号)
+    // 当前应展示的列表(空搜索=自选;有搜索=过滤全量实例 id)。排序基于纯符号,避免 .P 后缀打乱次序;
+    // 双挂币按 现货→合约 排列。
     var displayed: [String] {
         if query.isEmpty { return watchlist }
         let q = query.uppercased()
-        return allSymbols.filter { $0.contains(q) }
+        return allSymbols.filter { Inst.apiSymbol($0).contains(q) }
             .sorted { a, b in
-                func rank(_ s: String) -> (Int, Int, Int) {
-                    (s.hasPrefix(q) ? 0 : 1, s.hasSuffix("USDT") ? 0 : 1, s.count)
+                func rank(_ id: String) -> (Int, Int, Int, Int) {
+                    let s = Inst.apiSymbol(id)
+                    return (s.hasPrefix(q) ? 0 : 1, s.hasSuffix("USDT") ? 0 : 1, s.count, Inst.isPerp(id) ? 1 : 0)
                 }
                 return rank(a) < rank(b)
             }
             .prefix(40).map { $0 }
+    }
+
+    /// 搜索结果行情:自选币用实时(WS)行情,其余用按需拉取的快照(均按 id 存)。
+    func searchTicker(_ sym: String) -> Ticker? { tickers[sym] ?? searchTickers[sym] }
+
+    /// 搜索词变化时:防抖后按市场分批拉取当前结果的行情(现货批量 + 合约),按 id 存,供搜索行显示价格/涨跌幅。
+    private func scheduleSearchFetch() {
+        searchTask?.cancel()
+        let q = query
+        guard !q.isEmpty else { searchTickers = [:]; return }
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 280_000_000)   // 防抖:连打字时只在停顿后拉一次
+            guard !Task.isCancelled, let self, self.query == q else { return }
+            let ids = self.displayed                          // 已封顶 40
+            guard !ids.isEmpty else { return }
+            var map: [String: Ticker] = [:]
+            for s in ids { if let old = self.searchTickers[s] { map[s] = old } }   // 旧价打底,避免精炼搜索词时闪烁
+            let spotSyms = ids.filter { !Inst.isPerp($0) }.map { Inst.apiSymbol($0) }
+            let perpSyms = ids.filter { Inst.isPerp($0) }.map { Inst.apiSymbol($0) }
+            if !spotSyms.isEmpty {
+                let spot = await BinanceAPI.fetchSpot(spotSyms)
+                guard !Task.isCancelled, self.query == q else { return }
+                for t in spot { map[t.symbol] = t }
+            }
+            if !perpSyms.isEmpty {
+                let fut = await BinanceAPI.fetchFutures(perpSyms)
+                guard !Task.isCancelled, self.query == q else { return }
+                for t in fut { map[Inst.perpID(t.symbol)] = t }
+            }
+            self.searchTickers = map
+        }
     }
 
     func isWatched(_ sym: String) -> Bool { watchlist.contains(sym) }
@@ -211,12 +285,13 @@ final class TickerModel: ObservableObject {
             barCoins.removeAll { $0 == sym }
         } else {
             watchlist.append(sym)
+            let api = Inst.apiSymbol(sym), mkt = Inst.market(sym)
             Task { await refresh() }
-            Task { let c = await BinanceAPI.fetchKlines(sym); if !c.isEmpty { spark[sym] = c } }
-            Task { if let o = await BinanceAPI.fetchDailyOpen(sym) { dayOpen[sym] = o } }
+            Task { let c = await BinanceAPI.fetchKlines(api, market: mkt); if !c.isEmpty { spark[sym] = c } }
+            Task { if let o = await BinanceAPI.fetchDailyOpen(api, market: mkt) { dayOpen[sym] = o } }
         }
         persist()
-        stream?.update(symbols: watchlist)   // WS 重新订阅
+        updateStreams()   // WS 重新订阅(两条流按市场分)
     }
 
     func isPinned(_ sym: String) -> Bool { barCoins.contains(sym) }
@@ -287,26 +362,28 @@ final class TickerModel: ObservableObject {
     /// 截图预览用的假数据。
     static func mock() -> TickerModel {
         let m = TickerModel(watchlist: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: false)
-        m.watchlist = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]   // 截图用纯假数据,忽略已持久化的自选
+        // SOLUSDT(现货)+ SOLUSDT.P(合约)同时在列,演示双挂币两行并存。
+        m.watchlist = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "SOLUSDT.P", "BNBUSDT"]   // 截图用纯假数据,忽略已持久化的自选
         m.tickers = [
             "BTCUSDT": Ticker(symbol: "BTCUSDT", lastPrice: 66430.12, changePct: 1.32, high: 67255, low: 65469, quoteVolume: 10_900_000_000),
             "ETHUSDT": Ticker(symbol: "ETHUSDT", lastPrice: 1762.40, changePct: 3.45, high: 1849, low: 1712, quoteVolume: 4_800_000_000),
             "SOLUSDT": Ticker(symbol: "SOLUSDT", lastPrice: 73.68, changePct: -2.11, high: 76, low: 70.8, quoteVolume: 2_060_000_000),
+            "SOLUSDT.P": Ticker(symbol: "SOLUSDT", lastPrice: 73.66, changePct: -2.05, high: 76.1, low: 70.7, quoteVolume: 5_400_000_000),
             "BNBUSDT": Ticker(symbol: "BNBUSDT", lastPrice: 612.91, changePct: -0.63, high: 620, low: 605, quoteVolume: 837_000_000),
         ]
-        m.flash = ["BTCUSDT": 1, "ETHUSDT": 1, "SOLUSDT": -1, "BNBUSDT": 0]
+        m.flash = ["BTCUSDT": 1, "ETHUSDT": 1, "SOLUSDT": -1, "SOLUSDT.P": -1, "BNBUSDT": 0]
         m.spark = [
             "BTCUSDT": [64200, 64500, 64100, 64800, 65200, 65000, 65600, 66100, 65900, 66430],
             "ETHUSDT": [1700, 1712, 1695, 1722, 1735, 1750, 1742, 1758, 1762],
             "SOLUSDT": [76.4, 75.5, 75.8, 74.9, 74.0, 73.5, 73.9, 73.2, 73.68],
+            "SOLUSDT.P": [76.3, 75.4, 75.7, 74.8, 73.9, 73.4, 73.8, 73.1, 73.66],
             "BNBUSDT": [616, 615, 617, 614.5, 613.2, 612.5, 613.1, 612.91],
         ]
-        m.futuresSyms = ["SOLUSDT"]
-        m.funding = ["SOLUSDT": Funding(rate: -0.00008, mark: 73.66, index: 73.70,
-                                        nextTime: Date().addingTimeInterval(2400).timeIntervalSince1970 * 1000)]
+        m.funding = ["SOLUSDT.P": Funding(rate: -0.00008, mark: 73.66, index: 73.70,
+                                          nextTime: Date().addingTimeInterval(2400).timeIntervalSince1970 * 1000)]
         m.barCoins = ["BTCUSDT"]
-        m.alerts = [PriceAlert(sym: "SOLUSDT", price: 80, above: true),
-                    PriceAlert(sym: "SOLUSDT", price: 70, above: false)]
+        m.alerts = [PriceAlert(sym: "SOLUSDT.P", price: 80, above: true),
+                    PriceAlert(sym: "SOLUSDT.P", price: 70, above: false)]
         m.lastUpdated = Date()
         return m
     }

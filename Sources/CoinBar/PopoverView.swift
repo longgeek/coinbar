@@ -171,7 +171,7 @@ struct WatchRow: View {
     var body: some View {
         let t = model.tickers[sym]
         let pinned = model.isPinned(sym)
-        let isFut = model.futuresSyms.contains(sym)
+        let isFut = Inst.isPerp(sym)
         HStack(spacing: 8) {
             // 左侧操作:置顶 / 移除
             Button { model.togglePin(sym) } label: {
@@ -187,7 +187,7 @@ struct WatchRow: View {
 
             // 符号 + 现货/合约标记(标记放第二行,不占主行宽度,给 K 线让地方)
             VStack(alignment: .leading, spacing: 2) {
-                Text(t?.base ?? sym).font(Theme.rounded(14, weight: .semibold))
+                Text(t?.base ?? Inst.base(sym)).font(Theme.rounded(14, weight: .semibold))
                 HStack(spacing: 4) {
                     Text(isFut ? L("合约", "Perp") : L("现货", "Spot"))
                         .font(.system(size: 9, weight: .semibold))
@@ -195,7 +195,7 @@ struct WatchRow: View {
                         .padding(.horizontal, 4).padding(.vertical, 1)
                         .background(RoundedRectangle(cornerRadius: 4)
                             .fill((isFut ? skin.accent : Color.secondary).opacity(0.15)))
-                    Text(sym).font(.system(size: 10)).foregroundStyle(.tertiary)
+                    Text(Inst.apiSymbol(sym)).font(.system(size: 10)).foregroundStyle(.tertiary)
                 }
             }
 
@@ -240,7 +240,7 @@ struct WatchRow: View {
     }
 }
 
-/// 搜索结果行:符号 + 添加/已添加。
+/// 搜索结果行:与自选行同款两行布局(符号 + 现货/合约标记)+ 实时价格/涨跌幅 + 添加/已添加。
 struct SearchRow: View {
     @EnvironmentObject var model: TickerModel
     @Environment(\.skin) private var skin
@@ -249,18 +249,45 @@ struct SearchRow: View {
 
     var body: some View {
         let added = model.isWatched(sym)
-        let base = Ticker(symbol: sym, lastPrice: 0, changePct: 0, high: 0, low: 0, quoteVolume: 0).base
-        HStack(spacing: 10) {
-            Text(base).font(Theme.rounded(14, weight: .semibold))
-            Text(sym).font(.system(size: 10)).foregroundStyle(.tertiary)
-            Spacer()
+        let t = model.searchTicker(sym)
+        let isFut = Inst.isPerp(sym)
+        let base = t?.base ?? Inst.base(sym)
+        HStack(spacing: 8) {
+            // 符号 + 现货/合约标记(与自选行同样的两行排布)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(base).font(Theme.rounded(14, weight: .semibold))
+                HStack(spacing: 4) {
+                    if t != nil {   // 有行情才标现货/合约,避免加载前把合约误标成现货
+                        Text(isFut ? L("合约", "Perp") : L("现货", "Spot"))
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(isFut ? skin.accent : Color.secondary)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(RoundedRectangle(cornerRadius: 4)
+                                .fill((isFut ? skin.accent : Color.secondary).opacity(0.15)))
+                    }
+                    Text(Inst.apiSymbol(sym)).font(.system(size: 10)).foregroundStyle(.tertiary)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            // 实时价格 + 24h 涨跌幅(拉到才显示,未拉到时先留白,约 300ms 后补上)
+            if let t {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(Fmt.price(t.lastPrice)).font(Theme.mono(13, weight: .medium))
+                    ChangePill(pct: t.changePct)
+                }
+            }
+
+            // 添加 / 已添加
             Button { model.toggleWatch(sym) } label: {
                 Image(systemName: added ? "checkmark.circle.fill" : "plus.circle")
-                    .font(.system(size: 16))
+                    .font(.system(size: 18))
                     .foregroundStyle(added ? skin.up : skin.accent)
-            }.buttonStyle(.plain)
+            }.buttonStyle(.plain).frame(width: 22)
         }
         .padding(.horizontal, 8).padding(.vertical, 7)
+        .frame(height: 50)   // 与自选行同高
         .background(RoundedRectangle(cornerRadius: 8).fill(hover ? skin.rowHover : .clear))
         .contentShape(Rectangle())
         .onHover { hover = $0 }

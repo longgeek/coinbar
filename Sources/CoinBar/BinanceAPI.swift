@@ -10,11 +10,32 @@ struct Ticker: Identifiable, Codable, Equatable {
     var quoteVolume: Double      // 24h 成交额(USDT)
 
     var id: String { symbol }
-    var base: String {           // 去掉计价币后的基础符号,e.g. BTC
-        for q in ["USDT", "FDUSD", "USDC", "TUSD", "BUSD", "USD"] where symbol.hasSuffix(q) && symbol.count > q.count {
-            return String(symbol.dropLast(q.count))
+    var base: String { Inst.base(symbol) }   // 去掉计价币后的基础符号,e.g. BTC(经 Inst 统一,容忍 .P 后缀)
+}
+
+/// 交易市场:现货 / U 本位永续合约。
+enum Market { case spot, perp }
+
+/// 「币种实例」标识:现货沿用裸符号(BTCUSDT),合约加 ".P" 后缀(BTCUSDT.P)。
+/// 现货 id 与历史持久化完全兼容(老数据即现货),只有合约需要后缀区分。
+/// 注意:dict 主键/自选/菜单栏/提醒一律存 id;调用币安 API 一律用 apiSymbol(纯符号)。
+enum Inst {
+    static let perpSuffix = ".P"
+    static func isPerp(_ id: String) -> Bool { id.hasSuffix(perpSuffix) }
+    static func market(_ id: String) -> Market { isPerp(id) ? .perp : .spot }
+    /// 去掉市场后缀 → 币安 API 用的纯符号。
+    static func apiSymbol(_ id: String) -> String { isPerp(id) ? String(id.dropLast(perpSuffix.count)) : id }
+    /// 合约 id = 纯符号 + 后缀。
+    static func perpID(_ symbol: String) -> String { symbol + perpSuffix }
+    /// 按市场给纯符号生成 id(现货保持裸符号)。
+    static func id(_ symbol: String, _ market: Market) -> String { market == .perp ? perpID(symbol) : symbol }
+    /// 基础符号(去市场后缀 + 去计价币),e.g. BTCUSDT.P / BTCUSDT → BTC。
+    static func base(_ id: String) -> String {
+        let s = apiSymbol(id)
+        for q in ["USDT", "FDUSD", "USDC", "TUSD", "BUSD", "USD"] where s.hasSuffix(q) && s.count > q.count {
+            return String(s.dropLast(q.count))
         }
-        return symbol
+        return s
     }
 }
 
@@ -30,6 +51,8 @@ struct Funding: Equatable {
 enum BinanceAPI {
     static let spotBase = "https://data-api.binance.vision"   // 现货:无地区封锁
     static let fapiBase = "https://fapi.binance.com"          // USDⓈ-M 合约
+    static let spotWS = "wss://data-stream.binance.vision"    // 现货 WebSocket(无地区封锁)
+    static let futWS = "wss://fstream.binance.com"            // 合约 WebSocket(部分地区可能不通,由 REST 兜底)
 
     private static func getJSON(_ url: URL) async throws -> Any {
         let (data, resp) = try await URLSession.shared.data(from: url)
@@ -58,10 +81,9 @@ enum BinanceAPI {
         return await concurrent(symbols.map { "\(fapiBase)/fapi/v1/ticker/24hr?symbol=\($0)" })
     }
 
-    /// 近 24h 收盘价序列(48 根 30m K 线),用于迷你 K 线图。现货失败则回退合约。
-    static func fetchKlines(_ symbol: String) async -> [Double] {
-        let spot = await klines("\(spotBase)/api/v3/klines", symbol)
-        return spot.isEmpty ? await klines("\(fapiBase)/fapi/v1/klines", symbol) : spot
+    /// 近 24h 收盘价序列(48 根 30m K 线),用于迷你 K 线图。按市场取对应接口。
+    static func fetchKlines(_ symbol: String, market: Market = .spot) async -> [Double] {
+        await klines(market == .perp ? "\(fapiBase)/fapi/v1/klines" : "\(spotBase)/api/v3/klines", symbol)
     }
 
     private static func klines(_ base: String, _ symbol: String) async -> [Double] {
@@ -70,16 +92,13 @@ enum BinanceAPI {
         return raw.compactMap { Double(($0.count > 4 ? $0[4] : nil) as? String ?? "") }   // index 4 = close
     }
 
-    /// 今日开盘价(UTC 00:00):取 1 根日线的开盘价(index 1)。现货失败回退合约。
-    static func fetchDailyOpen(_ symbol: String) async -> Double? {
-        func open(_ base: String) async -> Double? {
-            guard let url = URL(string: "\(base)?symbol=\(symbol)&interval=1d&limit=1"),
-                  let raw = (try? await getJSON(url)) as? [[Any]],
-                  let first = raw.first, first.count > 1 else { return nil }
-            return Double((first[1] as? String) ?? "")
-        }
-        if let o = await open("\(spotBase)/api/v3/klines") { return o }
-        return await open("\(fapiBase)/fapi/v1/klines")
+    /// 今日开盘价(UTC 00:00):取 1 根日线的开盘价(index 1)。按市场取对应接口(现货/合约日开不同)。
+    static func fetchDailyOpen(_ symbol: String, market: Market = .spot) async -> Double? {
+        let base = market == .perp ? "\(fapiBase)/fapi/v1/klines" : "\(spotBase)/api/v3/klines"
+        guard let url = URL(string: "\(base)?symbol=\(symbol)&interval=1d&limit=1"),
+              let raw = (try? await getJSON(url)) as? [[Any]],
+              let first = raw.first, first.count > 1 else { return nil }
+        return Double((first[1] as? String) ?? "")
     }
 
     /// 合约资金费率/标记价(premiumIndex)。
@@ -108,11 +127,14 @@ enum BinanceAPI {
         }
     }
 
-    /// 全量符号(现货 ∪ 合约),用于搜索过滤。
+    /// 全量「实例 id」:现货(裸符号)∪ 合约(加 .P 后缀),用于搜索。
+    /// 不跨市场去重 → 双挂币(BTCUSDT)会同时给出现货 + 合约两个条目。
     static func fetchAllSymbols() async -> [String] {
         async let s = symbols("\(spotBase)/api/v3/ticker/price")
         async let f = symbols("\(fapiBase)/fapi/v1/ticker/price")
-        return Array(Set(await s + (await f))).sorted()
+        let spot = Set(await s)
+        let perp = Set(await f).map { Inst.perpID($0) }
+        return (Array(spot) + perp).sorted()
     }
 
     private static func symbols(_ u: String) async -> [String] {

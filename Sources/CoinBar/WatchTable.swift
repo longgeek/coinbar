@@ -56,8 +56,8 @@ struct WatchTable: NSViewRepresentable {
         let rows: [RowData] = model.watchlist.map { sym in
             let t = model.tickers[sym]
             return RowData(sym: sym,
-                           base: t?.base ?? Ticker(symbol: sym, lastPrice: 0, changePct: 0, high: 0, low: 0, quoteVolume: 0).base,
-                           isFut: model.futuresSyms.contains(sym),
+                           base: t?.base ?? Inst.base(sym),
+                           isFut: Inst.isPerp(sym),
                            pinned: model.isPinned(sym),
                            hasTicker: t != nil,
                            priceText: t.map { Fmt.price($0.lastPrice) } ?? "—",
@@ -254,7 +254,7 @@ final class WatchCellView: NSTableCellView {
         removeButton.toolTip = L("移除自选", "Remove")
 
         baseLabel.stringValue = d.base
-        symbolLabel.stringValue = d.sym
+        symbolLabel.stringValue = Inst.apiSymbol(d.sym)   // 完整符号去掉 .P 后缀;市场由 badge 标识
         badge.set(text: d.isFut ? L("合约", "Perp") : L("现货", "Spot"), tint: d.isFut ? c.accent : .secondaryLabelColor)
 
         priceLabel.stringValue = d.priceText

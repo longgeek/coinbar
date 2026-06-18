@@ -12,8 +12,8 @@ struct DetailView: View {
 
     var body: some View {
         let t = model.tickers[sym]
-        let isFut = model.futuresSyms.contains(sym)
-        let base = t?.base ?? sym
+        let isFut = Inst.isPerp(sym)
+        let base = t?.base ?? Inst.base(sym)
 
         VStack(spacing: 0) {
             header(base: base, isFut: isFut)
@@ -59,7 +59,7 @@ struct DetailView: View {
             Divider().overlay(skin.hairline)
 
             Button {
-                let path = isFut ? "futures/\(sym)" : "trade/\(base)_USDT?type=spot"
+                let path = isFut ? "futures/\(Inst.apiSymbol(sym))" : "trade/\(base)_USDT?type=spot"
                 if let url = URL(string: "https://www.binance.com/\(L("zh-CN", "en"))/\(path)") { openURL(url) }
             } label: {
                 HStack(spacing: 6) {
@@ -126,7 +126,7 @@ struct DetailView: View {
                 .background(Capsule().fill(skin.accent.opacity(0.18)))
                 .foregroundStyle(skin.accent)
             Spacer()
-            Text(sym).font(.system(size: 11)).foregroundStyle(.tertiary)
+            Text(Inst.apiSymbol(sym)).font(.system(size: 11)).foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 14).padding(.vertical, 11)
     }

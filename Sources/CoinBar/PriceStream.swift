@@ -1,16 +1,21 @@
 import Foundation
 
-/// Binance 现货行情 WebSocket(combined `<sym>@ticker` 流,data-stream.binance.vision 无地区封锁、免密钥)。
-/// 实时推送价格;断线指数退避重连。WS 不可用时由 TickerModel 的 REST 轮询兜底,故失败只是降级、不报错。
+/// Binance 行情 WebSocket(combined `<sym>@ticker` 流)。现货走 data-stream.binance.vision、合约走 fstream.binance.com,
+/// 两者 payload 字段集一致,故同一实现按 wsBase 复用。市场由「哪条流」决定(payload 的 s 字段两边都是裸符号),
+/// 故 onTicker 回调由各自的流注入对应市场。实时推送价格;断线指数退避重连;失败只是降级,由 REST 轮询兜底。
 @MainActor
 final class PriceStream {
+    private let wsBase: String
     private let onTicker: @MainActor (Ticker) -> Void
     private var task: URLSessionWebSocketTask?
     private var symbols: [String] = []
     private var active = false
     private var backoff: TimeInterval = 1
 
-    init(onTicker: @escaping @MainActor (Ticker) -> Void) { self.onTicker = onTicker }
+    init(wsBase: String, onTicker: @escaping @MainActor (Ticker) -> Void) {
+        self.wsBase = wsBase
+        self.onTicker = onTicker
+    }
 
     /// 订阅这批交易对(集合变化时重连)。
     func update(symbols: [String]) {
@@ -30,7 +35,7 @@ final class PriceStream {
         task = nil
         guard !symbols.isEmpty else { active = false; return }
         let streams = symbols.map { "\($0.lowercased())@ticker" }.joined(separator: "/")
-        guard let url = URL(string: "wss://data-stream.binance.vision/stream?streams=\(streams)") else { return }
+        guard let url = URL(string: "\(wsBase)/stream?streams=\(streams)") else { return }
         active = true
         let t = URLSession.shared.webSocketTask(with: url)
         task = t
