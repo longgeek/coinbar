@@ -43,6 +43,9 @@ final class TickerModel: ObservableObject {
     private var spotStream: PriceStream?            // 现货实时推送
     private var futStream: PriceStream?             // 合约实时推送
     private var searchTask: Task<Void, Never>?   // 搜索行情拉取(防抖 + 可取消)
+    private var symbolTask: Task<Void, Never>?   // 全量符号加载(分市场容错重试 + 定时刷新)
+    private var lastSpotSyms: [String] = []      // 最近一次成功的现货符号(last-good 容错)
+    private var lastPerpSyms: [String] = []      // 最近一次成功的合约符号(last-good 容错)
 
     init(watchlist: [String] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: Bool = true) {
         self.watchlist = UserDefaults.standard.stringArray(forKey: "watchlist") ?? watchlist
@@ -71,25 +74,50 @@ final class TickerModel: ObservableObject {
         Task { await refresh() }         // 自选价格立即拉,不等 allSymbols
         Task { await refreshSparks() }
         Task { await refreshDayOpens() }
-        Task {                           // 全量符号(搜索 + 历史自选迁移);失败则退避重试,别让自选里的纯合约币整局无价
-            var syms = await BinanceAPI.fetchAllSymbols()
-            while syms.isEmpty {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                syms = await BinanceAPI.fetchAllSymbols()
-            }
-            let before = watchlist
-            allSymbols = syms            // didSet → migrateWatchlistMarkets()
-            if watchlist != before {     // 迁移改了自选(含纯合约币)→ 重订阅 + 重拉
-                updateStreams()
-                await refresh()
-                await refreshSparks()
-                await refreshDayOpens()
-            }
-        }
+        symbolTask = Task { await loadSymbolsLoop() }   // 全量符号(搜索 + 历史自选迁移):现货/合约分别容错重试,拉全后定时刷新
         restartTimer()
         sparkTimer = Timer.scheduledTimer(withTimeInterval: 90, repeats: true) { [weak self] _ in
             Task { await self?.refreshSparks() }
             Task { await self?.refreshDayOpens() }
+        }
+    }
+
+    /// 全量符号加载循环:现货 / 合约分别拉取,各自缓存「最近一次成功」结果(last-good)。
+    /// - 任一边本次失败 → 沿用 last-good,绝不因此丢掉另一类币;两边都未拉全时退避重试(5s→60s)。
+    /// - 两边都拉全后转入每 30 分钟刷新:自动收录新上市的币,并自愈一次性失败。
+    /// 修复:旧逻辑只在「整体为空」时重试,合约接口在启动时一次性失败(spot 成功)会被当成成功,
+    /// 导致纯合约币(如 LABUSDT)整局搜不到,直到重启。
+    private func loadSymbolsLoop() async {
+        var retry: UInt64 = 5_000_000_000               // 未拉全时的重试间隔,逐步退避到 60s
+        while !Task.isCancelled {
+            async let s = BinanceAPI.fetchSpotSymbols()
+            async let f = BinanceAPI.fetchPerpSymbols()
+            let spot = await s, perp = await f
+            if !spot.isEmpty { lastSpotSyms = spot }
+            if !perp.isEmpty { lastPerpSyms = perp }
+
+            let merged = (lastSpotSyms + lastPerpSyms).sorted()
+            if merged != allSymbols {
+                let before = watchlist
+                allSymbols = merged                     // didSet → migrateWatchlistMarkets()
+                if watchlist != before {                // 迁移改了自选(含纯合约币)→ 重订阅 + 重拉
+                    updateStreams()
+                    await refresh()
+                    await refreshSparks()
+                    await refreshDayOpens()
+                }
+            }
+
+            let complete = !lastSpotSyms.isEmpty && !lastPerpSyms.isEmpty
+            let wait: UInt64
+            if complete {
+                wait = 1_800_000_000_000                // 拉全:每 30 分钟刷新,收录新上市 + 自愈
+                retry = 5_000_000_000                   // 复位退避,下次掉线仍从 5s 起
+            } else {
+                wait = retry
+                retry = min(retry * 2, 60_000_000_000)
+            }
+            try? await Task.sleep(nanoseconds: wait)
         }
     }
 

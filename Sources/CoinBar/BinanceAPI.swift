@@ -127,14 +127,16 @@ enum BinanceAPI {
         }
     }
 
-    /// 全量「实例 id」:现货(裸符号)∪ 合约(加 .P 后缀),用于搜索。
+    /// 现货全量交易对(裸符号 id),用于搜索。失败返回空,由调用方按 last-good 容错 + 重试。
+    static func fetchSpotSymbols() async -> [String] {
+        await symbols("\(spotBase)/api/v3/ticker/price")
+    }
+
+    /// 合约(USDⓈ-M)全量交易对,已加 .P 后缀成实例 id,用于搜索。失败返回空,由调用方容错。
+    /// 现货走 .vision(无封锁)、合约走 fapi:两边相互独立,任一边失败都不应丢掉另一类币。
     /// 不跨市场去重 → 双挂币(BTCUSDT)会同时给出现货 + 合约两个条目。
-    static func fetchAllSymbols() async -> [String] {
-        async let s = symbols("\(spotBase)/api/v3/ticker/price")
-        async let f = symbols("\(fapiBase)/fapi/v1/ticker/price")
-        let spot = Set(await s)
-        let perp = Set(await f).map { Inst.perpID($0) }
-        return (Array(spot) + perp).sorted()
+    static func fetchPerpSymbols() async -> [String] {
+        (await symbols("\(fapiBase)/fapi/v1/ticker/price")).map { Inst.perpID($0) }
     }
 
     private static func symbols(_ u: String) async -> [String] {
