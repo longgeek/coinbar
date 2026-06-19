@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP="CoinBar"
-VERSION="0.1.4"
+VERSION="0.1.5"
 BUNDLE_ID="com.longgeek.coinbar"
 
 echo "==> swift build (release)"
