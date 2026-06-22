@@ -35,7 +35,7 @@ final class TickerModel: ObservableObject {
     private var prevPrice: [String: Double] = [:] // 变价闪烁基线
     @Published var flash: [String: Int] = [:]     // +1/-1/0
     @Published var spark: [String: [Double]] = [:] // 迷你 K 线收盘价序列(近 24h)
-    @Published var dayOpen: [String: Double] = [:]  // 今日(UTC 00:00)开盘价,用于「今日」涨跌
+    @Published var dayOpen: [String: Double] = [:]  // 今日(本地时区 0 点)开盘价,用于「今日」涨跌
     @Published var funding: [String: Funding] = [:] // 合约资金费率/标记价(详情页)
     @Published var alerts: [PriceAlert] = []         // 价格提醒(到价系统通知)
     private var timer: Timer?

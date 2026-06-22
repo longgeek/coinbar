@@ -92,10 +92,13 @@ enum BinanceAPI {
         return raw.compactMap { Double(($0.count > 4 ? $0[4] : nil) as? String ?? "") }   // index 4 = close
     }
 
-    /// 今日开盘价(UTC 00:00):取 1 根日线的开盘价(index 1)。按市场取对应接口(现货/合约日开不同)。
+    /// 今日开盘价(本地时区 0 点):取「本地当天 0 点」那根 K 线的开盘价(index 1),与币安 App 的「今日涨跌」一致。
+    /// 不用 interval=1d:日线开盘固定在 UTC 00:00,中国用户(UTC+8)会差 8 小时;
+    /// 也不用 timeZone 参数:现货支持、合约 fapi 会无视。改成按本地 0 点的时间戳取 1h K 线,两边通用。
     static func fetchDailyOpen(_ symbol: String, market: Market = .spot) async -> Double? {
         let base = market == .perp ? "\(fapiBase)/fapi/v1/klines" : "\(spotBase)/api/v3/klines"
-        guard let url = URL(string: "\(base)?symbol=\(symbol)&interval=1d&limit=1"),
+        let startMs = Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970 * 1000)
+        guard let url = URL(string: "\(base)?symbol=\(symbol)&interval=1h&limit=1&startTime=\(startMs)"),
               let raw = (try? await getJSON(url)) as? [[Any]],
               let first = raw.first, first.count > 1 else { return nil }
         return Double((first[1] as? String) ?? "")
