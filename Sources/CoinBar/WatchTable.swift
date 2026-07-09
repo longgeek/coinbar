@@ -53,6 +53,7 @@ struct WatchTable: NSViewRepresentable {
         let coord = context.coordinator
         coord.parent = self
         guard let table = nsView.documentView as? NSTableView else { return }
+        guard model.isPanelOpen else { return }   // 面板关闭:跳过行快照重建与单元格刷新(WS 仍在更新 model)
         let rows: [RowData] = model.watchlist.map { sym in
             let t = model.tickers[sym]
             return RowData(sym: sym,
@@ -60,13 +61,17 @@ struct WatchTable: NSViewRepresentable {
                            isFut: Inst.isPerp(sym),
                            pinned: model.isPinned(sym),
                            hasTicker: t != nil,
-                           priceText: t.map { Fmt.price($0.lastPrice) } ?? "—",
+                           priceText: t.map { Fmt.price($0.lastPrice, sym: sym) } ?? "—",
                            priceRaw: t?.lastPrice ?? 0,
                            pct: model.displayChange(sym),
                            flashDir: model.flash[sym] ?? 0,
                            spark: model.spark[sym] ?? [])
         }
         let colors = RowColors(up: NSColor(skin.up), down: NSColor(skin.down), accent: NSColor(skin.accent))
+        if rows == coord.rows && coord.skinId == skin.id {   // 行数据无变化(如仅 lastUpdated 变)→ 不动单元格
+            coord.colors = colors
+            return
+        }
         let structural = coord.rows.map { $0.sym } != rows.map { $0.sym } || coord.skinId != skin.id
         coord.rows = rows
         coord.colors = colors
@@ -146,8 +151,8 @@ struct WatchTable: NSViewRepresentable {
     }
 }
 
-/// 行数据快照(纯值类型)。
-struct RowData {
+/// 行数据快照(纯值类型)。Equatable 用于「无变化跳过刷新」。
+struct RowData: Equatable {
     let sym, base: String
     let isFut, pinned, hasTicker: Bool
     let priceText: String

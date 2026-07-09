@@ -23,7 +23,7 @@ struct DetailView: View {
                 if let t {
                     let chg = model.displayChange(sym)
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(Fmt.price(t.lastPrice))
+                        Text(Fmt.price(t.lastPrice, sym: sym))
                             .font(Theme.mono(26, weight: .semibold))
                             .foregroundStyle(skin.change(chg))
                         ChangePill(pct: chg)
@@ -40,16 +40,16 @@ struct DetailView: View {
 
             VStack(spacing: 0) {
                 if let t {
-                    statRow(L("24h 最高", "24h High"), Fmt.price(t.high))
-                    statRow(L("24h 最低", "24h Low"), Fmt.price(t.low))
+                    statRow(L("24h 最高", "24h High"), Fmt.price(t.high, sym: sym))
+                    statRow(L("24h 最低", "24h Low"), Fmt.price(t.low, sym: sym))
                     statRow(L("24h 成交额", "24h Volume"), Fmt.compact(t.quoteVolume) + " USDT")
                 }
                 if isFut, let f = model.funding[sym] {
                     Rectangle().fill(skin.hairline).frame(height: 1).padding(.vertical, 5)
                     statRow(L("资金费率", "Funding"), Fmt.funding(f.rate))
                     statRow(L("下次结算", "Next funding"), Fmt.fundingTime(f.nextTime))
-                    statRow(L("标记价", "Mark"), Fmt.price(f.mark))
-                    statRow(L("指数价", "Index"), Fmt.price(f.index))
+                    statRow(L("标记价", "Mark"), Fmt.price(f.mark, sym: sym))
+                    statRow(L("指数价", "Index"), Fmt.price(f.index, sym: sym))
                 }
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
@@ -83,7 +83,7 @@ struct DetailView: View {
                 HStack(spacing: 6) {
                     Image(systemName: a.above ? "arrow.up" : "arrow.down")
                         .font(.system(size: 10, weight: .bold)).foregroundStyle(a.above ? skin.up : skin.down)
-                    Text(Fmt.price(a.price)).font(Theme.mono(12, weight: .medium))
+                    Text(Fmt.price(a.price, sym: a.sym)).font(Theme.mono(12, weight: .medium))
                     Spacer()
                     Button { model.removeAlert(a) } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)

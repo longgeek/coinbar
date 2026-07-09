@@ -17,6 +17,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     private var hosting: NSHostingView<RootContent>?
     private var labelObserver: AnyCancellable?
     private var lastClose: Date?
+    private var lastBarKey: String?   // 上次菜单栏内容指纹:相同则跳过重绘(避免每个 tick / 无关币变动都重画图)
+
+    // 菜单栏字体/配色不变,提为静态避免每次绘制重新分配。
+    private static let barFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+    private static let barGreen = NSColor(srgbRed: 0.13, green: 0.85, blue: 0.55, alpha: 1)
+    private static let barRed = NSColor(srgbRed: 1.0, green: 0.34, blue: 0.35, alpha: 1)
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
@@ -42,18 +48,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     // MARK: 菜单栏彩色标签(非模板 NSImage,保留绿/红)
     @MainActor private func updateLabel() {
         guard let button = statusItem?.button else { return }
-        button.image = Self.barImage(model: model)   // isTemplate 由 barImage 按 barMono 决定
+        let segs = model.barSegments()
+        // 内容指纹:展示的币 + 价格 + 涨跌 + 方向 + 现货合约 + 三个样式开关。不变就不重绘(objectWillChange
+        // 每个 tick 都会来,但非菜单栏币的变动、无变化的 emission 在这里直接返回,实质零成本)。
+        let key = "\(model.barStyle)|\(model.barMono)|\(model.redUp)|"
+            + segs.map { "\($0.base)|\($0.price)|\($0.pct)|\($0.dir)|\($0.isPerp)" }.joined(separator: ";")
+        if key == lastBarKey { return }
+        lastBarKey = key
+        button.image = Self.barImage(model: model, segs: segs)   // isTemplate 由 barImage 按 barMono 决定
     }
 
-    @MainActor private static func barImage(model: TickerModel) -> NSImage {
+    @MainActor private static func barImage(model: TickerModel, segs: [(base: String, price: String, pct: String, dir: Int, isPerp: Bool)]) -> NSImage {
         let mono = model.barMono
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
-        let green = NSColor(srgbRed: 0.13, green: 0.85, blue: 0.55, alpha: 1)
-        let red = NSColor(srgbRed: 1.0, green: 0.34, blue: 0.35, alpha: 1)
+        let font = barFont
+        let green = barGreen
+        let red = barRed
         let upC: NSColor = mono ? .labelColor : (model.redUp ? red : green)
         let downC: NSColor = mono ? .labelColor : (model.redUp ? green : red)
         let attr = NSMutableAttributedString()
-        let segs = model.barSegments()
         if segs.isEmpty {
             attr.append(NSAttributedString(string: "CoinBar",
                 attributes: [.font: font, .foregroundColor: mono ? NSColor.labelColor : NSColor(white: 0.65, alpha: 1)]))
@@ -89,14 +101,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
     private func openPanel() {
         let panel = panel ?? makePanel()
         self.panel = panel
+        model.isPanelOpen = true          // 先置位:sizeAndPosition 的布局/首帧 updateNSView 即可填充列表
         applyAppearance(to: panel)
         sizeAndPosition(panel)
         panel.makeKeyAndOrderFront(nil)   // 成为 key(非激活面板,不抢占其它 app 焦点),拖拽与输入均可用
+        model.panelDidOpen()              // 恢复面板内才用的刷新(K 线一次性补刷)
     }
 
     private func closePanel() {
         lastClose = Date()
         panel?.orderOut(nil)
+        model.panelDidClose()             // 暂停面板内的刷新与列表更新(WS 仍在,菜单栏照常)
     }
 
     func windowDidResignKey(_ notification: Notification) { closePanel() }   // 点面板外即关闭

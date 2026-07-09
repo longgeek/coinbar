@@ -12,6 +12,19 @@ final class PriceStream {
     private var active = false
     private var backoff: TimeInterval = 1
 
+    // 半开检测(watchdog):连接「活着」却长时间不推数据(睡眠/唤醒、NAT 超时、服务端静默关闭不报错)
+    // 时,receive 会永远空等、退避永不触发。记录最近收到消息的时刻,定时探活,陈旧则 ping 探针 / 硬超时强连。
+    private var lastMessageAt = Date()
+    private var watchdog: Timer?
+
+    // 只解析需要的 6 个字段(裸符号 s、最新价 c、24h 涨跌幅 P、高 h、低 l、成交额 q)。
+    // 用 Codable 避开 JSONSerialization 的 NSDictionary 桥接;非 @ticker 帧(如控制应答)解码失败即忽略。
+    private struct Frame: Decodable {
+        struct D: Decodable { let s, c, P, h, l, q: String }
+        let data: D
+    }
+    private let decoder = JSONDecoder()
+
     init(wsBase: String, onTicker: @escaping @MainActor (Ticker) -> Void) {
         self.wsBase = wsBase
         self.onTicker = onTicker
@@ -28,12 +41,18 @@ final class PriceStream {
         active = false
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
+        watchdog?.invalidate()
+        watchdog = nil
     }
 
     private func connect() {
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
-        guard !symbols.isEmpty else { active = false; return }
+        guard !symbols.isEmpty else {
+            active = false
+            watchdog?.invalidate(); watchdog = nil
+            return
+        }
         let streams = symbols.map { "\($0.lowercased())@ticker" }.joined(separator: "/")
         guard let url = URL(string: "\(wsBase)/stream?streams=\(streams)") else { return }
         active = true
@@ -41,6 +60,32 @@ final class PriceStream {
         task = t
         t.resume()
         receive(t)
+        lastMessageAt = Date()
+        startWatchdog()
+    }
+
+    /// 探活定时器:陈旧(>30s 无数据)先 ping 探针,失败或硬超时(>60s)直接重连。重连/停止时复位。
+    private func startWatchdog() {
+        watchdog?.invalidate()
+        let w = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkAlive() }
+        }
+        w.tolerance = 5
+        watchdog = w
+    }
+
+    private func checkAlive() {
+        guard active, let t = task else { return }
+        let idle = Date().timeIntervalSince(lastMessageAt)
+        if idle > 60 { connect(); return }   // 硬超时:即便 ping 不报错也强制重连
+        guard idle > 30 else { return }
+        t.sendPing { [weak self] err in
+            guard err != nil else { return }
+            Task { @MainActor in
+                guard let self, self.active, self.task === t else { return }   // 旧连接的迟到失败不应杀掉新连接
+                self.connect()
+            }
+        }
     }
 
     private func receive(_ t: URLSessionWebSocketTask) {
@@ -50,9 +95,10 @@ final class PriceStream {
                 switch result {
                 case .success(let msg):
                     self.backoff = 1
+                    self.lastMessageAt = Date()
                     switch msg {
-                    case .string(let s): self.handle(s)
-                    case .data(let d): if let s = String(data: d, encoding: .utf8) { self.handle(s) }
+                    case .string(let s): self.handle(Data(s.utf8))
+                    case .data(let d): self.handle(d)   // 直接喂 Data,省去 Data→String→Data 往返
                     @unknown default: break
                     }
                     self.receive(t)
@@ -73,14 +119,12 @@ final class PriceStream {
         }
     }
 
-    private func handle(_ s: String) {
-        guard let data = s.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let d = obj["data"] as? [String: Any],
-              let sym = d["s"] as? String else { return }
-        func num(_ k: String) -> Double { Double((d[k] as? String) ?? "") ?? 0 }
+    private func handle(_ data: Data) {
+        guard let frame = try? decoder.decode(Frame.self, from: data) else { return }
+        let d = frame.data
+        func num(_ s: String) -> Double { Double(s) ?? 0 }
         // @ticker: c=最新价, P=24h 涨跌幅%, h=高, l=低, q=成交额
-        onTicker(Ticker(symbol: sym, lastPrice: num("c"), changePct: num("P"),
-                        high: num("h"), low: num("l"), quoteVolume: num("q")))
+        onTicker(Ticker(symbol: d.s, lastPrice: num(d.c), changePct: num(d.P),
+                        high: num(d.h), low: num(d.l), quoteVolume: num(d.q)))
     }
 }

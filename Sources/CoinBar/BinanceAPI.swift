@@ -39,6 +39,15 @@ enum Inst {
     }
 }
 
+/// 每个实例 id 的价格显示小数位(来自币安 tickSize),让本地精度对齐币安。
+/// 合约整表覆盖、现货按需过滤填表(见 TickerModel)。写入统一在主线程(TickerModel 是
+/// @MainActor,await 后回到主 actor),读取也都在主线程,故用普通 enum、无需额外同步(与 Fmt/Inst 同风格)。
+enum PricePrecision {
+    private static var decimals: [String: Int] = [:]
+    static func merge(_ map: [String: Int]) { decimals.merge(map) { _, new in new } }
+    static func digits(for sym: String) -> Int? { decimals[sym] }
+}
+
 /// 现货行情:走 data-api.binance.vision(无地区封锁、免密钥),与 binance.com 同价。
 /// 合约资金费率 / 标记价信息。
 struct Funding: Equatable {
@@ -54,8 +63,16 @@ enum BinanceAPI {
     static let spotWS = "wss://data-stream.binance.vision"    // 现货 WebSocket(无地区封锁)
     static let futWS = "wss://fstream.binance.com"            // 合约 WebSocket(部分地区可能不通,由 REST 兜底)
 
+    /// 专用会话:关掉本地 URLCache(行情每次都要最新,缓存只占内存/IO),保留 HTTP keep-alive 复用连接。
+    private static let session: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        cfg.urlCache = nil
+        return URLSession(configuration: cfg)
+    }()
+
     private static func getJSON(_ url: URL) async throws -> Any {
-        let (data, resp) = try await URLSession.shared.data(from: url)
+        let (data, resp) = try await session.data(from: url)
         guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
@@ -148,6 +165,45 @@ enum BinanceAPI {
         return raw.compactMap { $0["symbol"] as? String }
     }
 
+    /// 现货指定交易对的显示小数位:实例 id(裸符号)→ 位数。按 symbols 过滤(KB 级,
+    /// 全量表 16MB 太重),只拉当前要显示的币。传入为纯符号。失败返回空,由调用方按需重试。
+    static func fetchSpotPrecision(_ symbols: [String]) async -> [String: Int] {
+        guard !symbols.isEmpty else { return [:] }
+        let arr = "[" + symbols.map { "\"\($0)\"" }.joined(separator: ",") + "]"
+        let q = arr.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? arr
+        return await precision("\(spotBase)/api/v3/exchangeInfo?symbols=\(q)", perp: false)
+    }
+
+    /// 合约全量交易对的显示小数位:实例 id(.P)→ 位数(合约 exchangeInfo 不支持按 symbol 过滤,
+    /// 整表 1MB 一次覆盖所有合约)。失败返回空。
+    static func fetchPerpPrecision() async -> [String: Int] {
+        await precision("\(fapiBase)/fapi/v1/exchangeInfo", perp: true)
+    }
+
+    /// 从 exchangeInfo 抽 tickSize → 显示小数位。symbol id 与行情用同一套(合约加 .P)。
+    private static func precision(_ u: String, perp: Bool) async -> [String: Int] {
+        guard let url = URL(string: u),
+              let raw = (try? await getJSON(url)) as? [String: Any],
+              let syms = raw["symbols"] as? [[String: Any]] else { return [:] }
+        var out: [String: Int] = [:]
+        for s in syms {
+            guard let sym = s["symbol"] as? String,
+                  let filters = s["filters"] as? [[String: Any]],
+                  let pf = filters.first(where: { ($0["filterType"] as? String) == "PRICE_FILTER" }),
+                  let tick = pf["tickSize"] as? String else { continue }
+            out[perp ? Inst.perpID(sym) : sym] = decimals(fromTickSize: tick)
+        }
+        return out
+    }
+
+    /// tickSize 字符串 → 小数位。"0.0000100" → 5;"0.10" → 1;"1" / "1.0" → 0。
+    static func decimals(fromTickSize tick: String) -> Int {
+        guard let dot = tick.firstIndex(of: ".") else { return 0 }
+        let frac = tick[tick.index(after: dot)...]
+        let trimmed = frac.reversed().drop(while: { $0 == "0" })   // 去掉尾部补零
+        return trimmed.count
+    }
+
     private static func parse(_ d: [String: Any]) -> Ticker? {
         guard let sym = d["symbol"] as? String else { return nil }
         func num(_ k: String) -> Double { Double((d[k] as? String) ?? "") ?? 0 }
@@ -162,13 +218,30 @@ enum BinanceAPI {
 
 /// 数字格式化工具。
 enum Fmt {
-    static func price(_ v: Double) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
+    // 价格小数位 0...8 各一个格式化器,配置好后只读用于格式化,缓存复用避免每次分配。
+    private static let priceFormatters: [Int: NumberFormatter] = {
+        var m: [Int: NumberFormatter] = [:]
+        for digits in 0...8 {
+            let f = NumberFormatter()
+            f.numberStyle = .decimal
+            f.minimumFractionDigits = digits
+            f.maximumFractionDigits = digits
+            m[digits] = f
+        }
+        return m
+    }()
+
+    private static func fixed(_ v: Double, _ digits: Int) -> String {
+        priceFormatters[min(max(digits, 0), 8)]?.string(from: NSNumber(value: v)) ?? "\(v)"
+    }
+
+    /// 价格文本。优先按币种 tickSize 精度(对齐币安);精度未知(exchangeInfo 未到)时退回按量级的粗档。
+    static func price(_ v: Double, sym: String? = nil) -> String {
+        if let sym, let d = PricePrecision.digits(for: sym) {
+            return fixed(v, d)
+        }
         let a = abs(v)
-        f.minimumFractionDigits = a >= 1 ? 2 : (a >= 0.01 ? 4 : 6)
-        f.maximumFractionDigits = f.minimumFractionDigits
-        return f.string(from: NSNumber(value: v)) ?? "\(v)"
+        return fixed(v, a >= 1 ? 2 : (a >= 0.01 ? 4 : 6))
     }
     static func pct(_ v: Double) -> String {
         String(format: "%+.2f%%", v)

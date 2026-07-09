@@ -150,10 +150,13 @@ struct PopoverView: View {
         .frame(height: 44)   // 与顶部搜索区同高
     }
 
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f
+    }()
+
     private var updatedText: String {
         guard let d = model.lastUpdated else { return L("连接中…", "Connecting…") }
-        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
-        let t = f.string(from: d)
+        let t = Self.timeFormatter.string(from: d)
         return L("更新于 \(t)", "Updated \(t)")
     }
 }
@@ -211,7 +214,7 @@ struct WatchRow: View {
 
             if let t {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(Fmt.price(t.lastPrice))
+                    Text(Fmt.price(t.lastPrice, sym: sym))
                         .font(Theme.mono(13, weight: .medium))
                         .foregroundStyle(flashColor(model.flash[sym] ?? 0))
                     ChangePill(pct: t.changePct)
@@ -274,7 +277,7 @@ struct SearchRow: View {
             // 实时价格 + 24h 涨跌幅(拉到才显示,未拉到时先留白,约 300ms 后补上)
             if let t {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(Fmt.price(t.lastPrice)).font(Theme.mono(13, weight: .medium))
+                    Text(Fmt.price(t.lastPrice, sym: sym)).font(Theme.mono(13, weight: .medium))
                     ChangePill(pct: t.changePct)
                 }
             }

@@ -13,7 +13,7 @@ struct PriceAlert: Codable, Equatable, Identifiable {
 /// 应用状态:自选、行情、搜索、菜单栏文案。
 @MainActor
 final class TickerModel: ObservableObject {
-    @Published var watchlist: [String]   // 自选实例 id(现货=裸符号 BTCUSDT;合约=BTCUSDT.P)
+    @Published var watchlist: [String] { didSet { watchSet = Set(watchlist) } }   // 自选实例 id(现货=裸符号 BTCUSDT;合约=BTCUSDT.P)
     @Published var tickers: [String: Ticker] = [:]   // 按 id 存
     @Published var query: String = "" { didSet { scheduleSearchFetch() } }
     @Published var allSymbols: [String] = [] { didSet { migrateWatchlistMarkets(); if !query.isEmpty { scheduleSearchFetch() } } }   // 搜索用全量实例 id(晚到时补迁移 + 补拉价)
@@ -37,7 +37,7 @@ final class TickerModel: ObservableObject {
     @Published var spark: [String: [Double]] = [:] // 迷你 K 线收盘价序列(近 24h)
     @Published var dayOpen: [String: Double] = [:]  // 今日(本地时区 0 点)开盘价,用于「今日」涨跌
     @Published var funding: [String: Funding] = [:] // 合约资金费率/标记价(详情页)
-    @Published var alerts: [PriceAlert] = []         // 价格提醒(到价系统通知)
+    @Published var alerts: [PriceAlert] = [] { didSet { alertSyms = Set(alerts.map { $0.sym }) } }  // 价格提醒(到价系统通知)
     private var timer: Timer?
     private var sparkTimer: Timer?
     private var spotStream: PriceStream?            // 现货实时推送
@@ -46,6 +46,17 @@ final class TickerModel: ObservableObject {
     private var symbolTask: Task<Void, Never>?   // 全量符号加载(分市场容错重试 + 定时刷新)
     private var lastSpotSyms: [String] = []      // 最近一次成功的现货符号(last-good 容错)
     private var lastPerpSyms: [String] = []      // 最近一次成功的合约符号(last-good 容错)
+
+    // 性能:O(1) 成员判断,避免每个 WS tick 在 watchlist 上线性扫描。随 watchlist/alerts didSet 同步。
+    private var watchSet: Set<String> = []
+    private var alertSyms: Set<String> = []
+    // REST 兜底门控:记录各市场最近一次 WS 推送的时刻;WS 新鲜则停掉高频 REST(只在陈旧/未连时接管)。
+    private var lastSpotTick: Date?
+    private var lastPerpTick: Date?
+    private var reconcileAt = Date()              // 下次低频全量对账(WS 健康时也每 60s 拉一次纠偏)
+    private let wsStaleThreshold: TimeInterval = 6  // 超过此秒数没收到该市场 WS 推送即视为陈旧 → REST 接管
+    private var dayOpenDay: Date?                 // 已取「今日开盘」对应的本地 0 点(跨日才重取)
+    var isPanelOpen = false                       // 面板是否打开(由 AppDelegate 设置;关时暂停只在面板里用的刷新)
 
     init(watchlist: [String] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"], autostart: Bool = true) {
         self.watchlist = UserDefaults.standard.stringArray(forKey: "watchlist") ?? watchlist
@@ -60,6 +71,8 @@ final class TickerModel: ObservableObject {
         self.changeBasis = UserDefaults.standard.string(forKey: "changeBasis") ?? "24h"
         self.lang = UserDefaults.standard.string(forKey: "lang") ?? "auto"
         self.launchAtLogin = (SMAppService.mainApp.status == .enabled)
+        self.watchSet = Set(self.watchlist)            // didSet 在 init 不触发,手动初始化
+        self.alertSyms = Set(self.alerts.map { $0.sym })
         if autostart {
             Localize.lang = self.lang   // 仅正常启动时同步;截图模式由 --lang 决定
             start()                     // 启动即抓数据(不必等用户点开面板)
@@ -71,15 +84,18 @@ final class TickerModel: ObservableObject {
         spotStream = PriceStream(wsBase: BinanceAPI.spotWS) { [weak self] t in self?.ingest(t, market: .spot) }
         futStream = PriceStream(wsBase: BinanceAPI.futWS) { [weak self] t in self?.ingest(t, market: .perp) }
         updateStreams()                  // 先按现有自选订阅
-        Task { await refresh() }         // 自选价格立即拉,不等 allSymbols
-        Task { await refreshSparks() }
-        Task { await refreshDayOpens() }
+        Task { await refresh() }         // 自选价格立即拉,不等 allSymbols(WS 还没开始推时的首屏)
+        Task { await refreshDayOpens() } // 「今日」基准会进菜单栏,启动即取;迷你 K 线只在面板里显示,推迟到打开面板再拉
         symbolTask = Task { await loadSymbolsLoop() }   // 全量符号(搜索 + 历史自选迁移):现货/合约分别容错重试,拉全后定时刷新
         restartTimer()
         sparkTimer = Timer.scheduledTimer(withTimeInterval: 90, repeats: true) { [weak self] _ in
-            Task { await self?.refreshSparks() }
-            Task { await self?.refreshDayOpens() }
+            Task { @MainActor in
+                guard let self else { return }
+                if self.isPanelOpen { await self.refreshSparks() }  // K 线只在面板可见时刷新
+                await self.refreshDayOpens()                        // 今日开盘:跨日才真正取,平时秒回
+            }
         }
+        sparkTimer?.tolerance = 15       // 非关键刷新,允许系统合并唤醒
     }
 
     /// 全量符号加载循环:现货 / 合约分别拉取,各自缓存「最近一次成功」结果(last-good)。
@@ -92,9 +108,12 @@ final class TickerModel: ObservableObject {
         while !Task.isCancelled {
             async let s = BinanceAPI.fetchSpotSymbols()
             async let f = BinanceAPI.fetchPerpSymbols()
+            async let fp = BinanceAPI.fetchPerpPrecision()   // 合约整表精度(1MB,覆盖全部含搜索),30min 刷新自愈新上市
             let spot = await s, perp = await f
             if !spot.isEmpty { lastSpotSyms = spot }
             if !perp.isEmpty { lastPerpSyms = perp }
+            let perpPrec = await fp
+            if !perpPrec.isEmpty { PricePrecision.merge(perpPrec) }   // 失败则沿用 last-good,未知币退回粗档
 
             let merged = (lastSpotSyms + lastPerpSyms).sorted()
             if merged != allSymbols {
@@ -121,6 +140,15 @@ final class TickerModel: ObservableObject {
         }
     }
 
+    /// 确保这些 id 的现货价格精度就绪(合约精度由整表覆盖,这里只管现货):缺哪拉哪,
+    /// 按 symbols 过滤只拉未知的(KB 级)。精度未到时 Fmt.price 退回按量级粗档,拉到后自然精确。
+    func ensureSpotPrecision(_ ids: [String]) async {
+        let need = ids.filter { !Inst.isPerp($0) && PricePrecision.digits(for: $0) == nil }
+        guard !need.isEmpty else { return }
+        let m = await BinanceAPI.fetchSpotPrecision(need.map { Inst.apiSymbol($0) })
+        if !m.isEmpty { PricePrecision.merge(m) }
+    }
+
     /// 按市场把自选拆给两条流订阅(传纯符号)。
     private func updateStreams() {
         spotStream?.update(symbols: watchlist.filter { !Inst.isPerp($0) }.map { Inst.apiSymbol($0) })
@@ -145,13 +173,43 @@ final class TickerModel: ObservableObject {
         persist(); persistAlerts()
     }
 
-    /// 按当前 refreshSec 重建价格定时器(改间隔时调用)。
+    /// 按当前 refreshSec 重建价格定时器(改间隔时调用)。定时器走 scheduledRefresh(按 WS 新鲜度门控 REST)。
     func restartTimer() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: Double(max(1, refreshSec)), repeats: true) { [weak self] _ in
-            Task { await self?.refresh() }
+        let interval = Double(max(1, refreshSec))
+        let t = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { await self?.scheduledRefresh() }
         }
+        t.tolerance = max(0.5, interval * 0.2)   // 价格还有 WS 实时兜着,允许系统合并唤醒省电
+        timer = t
     }
+
+    /// 定时器驱动的 REST:WS 健康的市场跳过(由 WS 实时推送),只有陈旧/未连接的市场才 REST 接管;
+    /// 另外每 60s 做一次低频全量对账纠偏。WS 正常时这里基本不发网络请求。
+    private func scheduledRefresh() async {
+        let now = Date()
+        func stale(_ d: Date?) -> Bool { d.map { now.timeIntervalSince($0) > wsStaleThreshold } ?? true }
+        let hasSpot = watchlist.contains { !Inst.isPerp($0) }
+        let hasPerp = watchlist.contains { Inst.isPerp($0) }
+        var doSpot = hasSpot && stale(lastSpotTick)
+        var doPerp = hasPerp && stale(lastPerpTick)
+        if now >= reconcileAt {                  // 低频对账:即便 WS 健康也定期全量拉一次纠偏
+            reconcileAt = now.addingTimeInterval(60)
+            if hasSpot { doSpot = true }
+            if hasPerp { doPerp = true }
+        }
+        guard doSpot || doPerp else { return }   // 两个市场 WS 都新鲜且未到对账点 → 完全不发 REST
+        await refresh(spot: doSpot, perp: doPerp)
+    }
+
+    /// 面板打开:恢复只在面板里用的刷新(迷你 K 线一次性补刷),并标记可见。
+    func panelDidOpen() {
+        isPanelOpen = true
+        Task { await refreshSparks() }
+        Task { await refreshDayOpens() }
+    }
+
+    func panelDidClose() { isPanelOpen = false }
 
     /// 外观覆盖:nil=跟随系统。
     var forcedScheme: ColorScheme? {
@@ -180,18 +238,31 @@ final class TickerModel: ObservableObject {
     }
 
     func refreshSparks() async {
-        for sym in watchlist {
-            let c = await BinanceAPI.fetchKlines(Inst.apiSymbol(sym), market: Inst.market(sym))
-            if !c.isEmpty { spark[sym] = c }
+        let syms = watchlist
+        await withTaskGroup(of: (String, [Double]).self) { group in
+            for sym in syms {
+                group.addTask { (sym, await BinanceAPI.fetchKlines(Inst.apiSymbol(sym), market: Inst.market(sym))) }
+            }
+            for await (sym, c) in group where !c.isEmpty { spark[sym] = c }
         }
     }
 
-    /// 「今日」涨跌所需的日线开盘价(仅在该口径下抓)。
+    /// 「今日」涨跌所需的日线开盘价(仅在该口径下抓)。开盘价只在本地 0 点变,故仅「跨日」或「缺失」时取,
+    /// 平时秒回;并发拉取。
     func refreshDayOpens() async {
         guard changeBasis == "today" else { return }
-        for sym in watchlist {
-            if let o = await BinanceAPI.fetchDailyOpen(Inst.apiSymbol(sym), market: Inst.market(sym)) { dayOpen[sym] = o }
+        let today = Calendar.current.startOfDay(for: Date())
+        let dayRolled = (dayOpenDay != today)
+        let syms = dayRolled ? watchlist : watchlist.filter { dayOpen[$0] == nil }
+        guard !syms.isEmpty else { return }
+        var ok = 0
+        await withTaskGroup(of: (String, Double?).self) { group in
+            for sym in syms {
+                group.addTask { (sym, await BinanceAPI.fetchDailyOpen(Inst.apiSymbol(sym), market: Inst.market(sym))) }
+            }
+            for await (sym, o) in group { if let o { dayOpen[sym] = o; ok += 1 } }
         }
+        if dayRolled && ok == syms.count { dayOpenDay = today }   // 全部取到才记账,部分失败下轮自愈
     }
 
     /// 按当前口径算涨跌幅(%):24h 用 Binance 滚动值;今日用 (现价-今开)/今开。
@@ -208,21 +279,28 @@ final class TickerModel: ObservableObject {
         if let f = await BinanceAPI.fetchFunding(Inst.apiSymbol(sym)) { funding[sym] = f }
     }
 
-    func refresh() async {
+    /// REST 拉取行情。spot/perp 控制各市场是否拉(scheduledRefresh 按 WS 新鲜度门控;手动刷新两者都拉)。
+    func refresh(spot: Bool = true, perp: Bool = true) async {
         let ids = watchlist
         guard !ids.isEmpty else { tickers = [:]; return }
+        await ensureSpotPrecision(ids)                     // 自选现货精度就绪(合约由整表覆盖),让价格对齐币安
         var map = tickers                                  // 保留上次,避免瞬时缺失闪烁
-        let spotIDs = ids.filter { !Inst.isPerp($0) }
-        let perpIDs = ids.filter { Inst.isPerp($0) }
-        if !spotIDs.isEmpty {
-            let spot = await BinanceAPI.fetchSpot(spotIDs.map { Inst.apiSymbol($0) })
-            for t in spot { map[t.symbol] = t }            // 现货 id == 纯符号
+        var touched: [String] = []
+        if spot {
+            let spotIDs = ids.filter { !Inst.isPerp($0) }
+            if !spotIDs.isEmpty {
+                let s = await BinanceAPI.fetchSpot(spotIDs.map { Inst.apiSymbol($0) })
+                for t in s { map[t.symbol] = t; touched.append(t.symbol) }   // 现货 id == 纯符号
+            }
         }
-        if !perpIDs.isEmpty {
-            let fut = await BinanceAPI.fetchFutures(perpIDs.map { Inst.apiSymbol($0) })
-            for t in fut { map[Inst.perpID(t.symbol)] = t } // 合约回存到 .P id
+        if perp {
+            let perpIDs = ids.filter { Inst.isPerp($0) }
+            if !perpIDs.isEmpty {
+                let f = await BinanceAPI.fetchFutures(perpIDs.map { Inst.apiSymbol($0) })
+                for t in f { let id = Inst.perpID(t.symbol); map[id] = t; touched.append(id) }  // 合约回存到 .P id
+            }
         }
-        for sym in ids {                                   // 变价方向(脉冲/闪烁)
+        for sym in touched {                               // 只动本次 REST 真正取到的币,不覆盖 WS 在管的 flash
             if let t = map[sym] {
                 let dir = prevPrice[sym].map { t.lastPrice > $0 ? 1 : (t.lastPrice < $0 ? -1 : 0) } ?? 0
                 flash[sym] = dir
@@ -234,15 +312,17 @@ final class TickerModel: ObservableObject {
         lastUpdated = Date()
     }
 
-    /// 单条行情入库(WebSocket 推送与 REST 共用):按所属市场算出 id,更新价格、变价方向、检查提醒。
+    /// 单条 WebSocket 行情入库:按市场算 id,记 WS 新鲜度,无变化则短路(避免 @Published 风暴),否则更新并查提醒。
     func ingest(_ t: Ticker, market: Market) {
         let id = Inst.id(t.symbol, market)
-        guard watchlist.contains(id) else { return }
+        guard watchSet.contains(id) else { return }
+        switch market { case .spot: lastSpotTick = Date(); case .perp: lastPerpTick = Date() }  // WS 活着(供 REST 门控),即便值没变
         let dir = prevPrice[id].map { t.lastPrice > $0 ? 1 : (t.lastPrice < $0 ? -1 : 0) } ?? 0
-        flash[id] = dir
-        prevPrice[id] = t.lastPrice
+        prevPrice[id] = t.lastPrice                          // 非 @Published,总是更新作方向基线
+        if tickers[id] == t && dir == 0 { return }           // 整条快照不变且无变价 → UI 无变化,跳过全部 @Published 写入与提醒
+        if dir != 0 { flash[id] = dir }                      // 仅真正变价才点亮;平价/仅字段变化保留上次方向
         tickers[id] = t
-        checkAlerts()
+        if alertSyms.contains(id) { checkAlerts(for: id) }   // 只检查刚 tick 且设了提醒的币
         lastUpdated = Date()
     }
 
@@ -254,7 +334,7 @@ final class TickerModel: ObservableObject {
         return coins.compactMap { sym in
             guard let t = tickers[sym] else { return nil }
             let chg = displayChange(sym)
-            return (t.base, Fmt.price(t.lastPrice), Fmt.pct(chg), chg >= 0 ? 1 : -1, Inst.isPerp(sym))
+            return (t.base, Fmt.price(t.lastPrice, sym: sym), Fmt.pct(chg), chg >= 0 ? 1 : -1, Inst.isPerp(sym))
         }
     }
 
@@ -287,6 +367,7 @@ final class TickerModel: ObservableObject {
             guard !Task.isCancelled, let self, self.query == q else { return }
             let ids = self.displayed                          // 已封顶 40
             guard !ids.isEmpty else { return }
+            await self.ensureSpotPrecision(ids)               // 搜索结果现货精度按需补(合约由整表覆盖)
             var map: [String: Ticker] = [:]
             for s in ids { if let old = self.searchTickers[s] { map[s] = old } }   // 旧价打底,避免精炼搜索词时闪烁
             let spotSyms = ids.filter { !Inst.isPerp($0) }.map { Inst.apiSymbol($0) }
@@ -314,7 +395,14 @@ final class TickerModel: ObservableObject {
         } else {
             watchlist.append(sym)
             let api = Inst.apiSymbol(sym), mkt = Inst.market(sym)
-            Task { await refresh() }
+            Task {   // 只拉新增的这一个币(WS 重订阅后由实时推送接管;不动 WS 新鲜度时间戳)
+                await ensureSpotPrecision([sym])           // 新增币精度立即就绪,价格一上来就对齐币安
+                let fetched = mkt == .perp ? await BinanceAPI.fetchFutures([api]) : await BinanceAPI.fetchSpot([api])
+                guard let t = fetched.first, watchSet.contains(sym) else { return }
+                tickers[sym] = t
+                prevPrice[sym] = t.lastPrice
+                lastUpdated = Date()
+            }
             Task { let c = await BinanceAPI.fetchKlines(api, market: mkt); if !c.isEmpty { spark[sym] = c } }
             Task { if let o = await BinanceAPI.fetchDailyOpen(api, market: mkt) { dayOpen[sym] = o } }
         }
@@ -363,22 +451,32 @@ final class TickerModel: ObservableObject {
         UserDefaults.standard.set(try? JSONEncoder().encode(alerts), forKey: "alerts")
     }
 
-    /// 每次刷新检查:命中的提醒发系统通知并移除(一次性)。
+    /// 全量扫描:REST 一次更新多个币时用。
     private func checkAlerts() {
         guard !alerts.isEmpty else { return }
-        let fired = alerts.filter { a in
+        fire(alerts.filter { a in
             guard let t = tickers[a.sym] else { return false }
             return a.above ? t.lastPrice >= a.price : t.lastPrice <= a.price
-        }
+        })
+    }
+
+    /// 单币检查:WS tick 时用,只看该币的提醒。
+    private func checkAlerts(for id: String) {
+        guard let t = tickers[id] else { return }
+        fire(alerts.filter { $0.sym == id && ($0.above ? t.lastPrice >= $0.price : t.lastPrice <= $0.price) })
+    }
+
+    /// 命中的提醒发系统通知并移除(一次性)。
+    private func fire(_ fired: [PriceAlert]) {
         guard !fired.isEmpty else { return }
         for a in fired {
             let base = tickers[a.sym]?.base ?? a.sym
-            let now = Fmt.price(tickers[a.sym]?.lastPrice ?? a.price)
+            let now = Fmt.price(tickers[a.sym]?.lastPrice ?? a.price, sym: a.sym)
             Notifier.fire(
-                title: "\(base) \(a.above ? L("涨破", "rose above") : L("跌破", "fell below")) \(Fmt.price(a.price))",
+                title: "\(base) \(a.above ? L("涨破", "rose above") : L("跌破", "fell below")) \(Fmt.price(a.price, sym: a.sym))",
                 body: L("当前 \(now)", "Now \(now)"))
         }
-        alerts.removeAll { fired.contains($0) }
+        alerts.removeAll { fired.contains($0) }   // 触发 alertSyms didSet 同步
         persistAlerts()
     }
 
